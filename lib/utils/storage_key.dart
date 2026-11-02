@@ -31,6 +31,7 @@ abstract final class SettingBoxKey {
       highQualityPlaybackOnStartup = 'highQualityPlaybackOnStartup',
       hideDynamicsTabs = 'hideDynamicsTabs',
       hideDynamicsChargeVideo = 'hideDynamicsChargeVideo',
+      dynUpPanelShowGroup = 'dynUpPanelShowGroup',
       enableAutoEnter = 'enableAutoEnter',
       enableAutoExit = 'enableAutoExit',
       autoLikeOnProgress = 'autoLikeOnProgress',

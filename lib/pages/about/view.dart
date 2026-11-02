@@ -38,11 +38,11 @@ class AboutPage extends StatefulWidget {
 }
 
 class _AboutPageState extends State<AboutPage> {
-  /// 显示格式：语义版本(构建日期)，如 2.1.6(202610301323)
-  /// - versionName：上游语义版本（2.1.6），由构建脚本从 pubspec 注入
-  /// - versionCode：构建日期 yyyyMMddHHmm
+  /// 显示格式与上游一致：语义版本+构建号，如 2.1.6+20261103
+  /// - versionName：语义版本（2.1.6），由构建脚本从 pubspec 注入
+  /// - versionCode：构建号，非 git 仓库环境下用 yyyyMMdd 代替提交数
   final currentVersion =
-      '${BuildConfig.versionName}(${BuildConfig.versionCode})';
+      '${BuildConfig.versionName}+${BuildConfig.versionCode}';
   RxString cacheSize = ''.obs;
 
   late int _pressCount = 0;

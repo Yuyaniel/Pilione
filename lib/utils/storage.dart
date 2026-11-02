@@ -145,15 +145,21 @@ abstract final class GStorage {
   }
 
   static void regAdapter() {
-    Hive
-      ..registerAdapter(OwnerAdapter())
-      ..registerAdapter(UserInfoDataAdapter())
-      ..registerAdapter(LevelInfoAdapter())
-      ..registerAdapter(BiliCookieJarAdapter())
-      ..registerAdapter(LoginAccountAdapter())
-      ..registerAdapter(AccountTypeAdapter())
-      ..registerAdapter(SetIntAdapter())
-      ..registerAdapter(RuleFilterAdapter());
+    _register(OwnerAdapter());
+    _register(UserInfoDataAdapter());
+    _register(LevelInfoAdapter());
+    _register(BiliCookieJarAdapter());
+    _register(LoginAccountAdapter());
+    _register(AccountTypeAdapter());
+    _register(SetIntAdapter());
+    _register(RuleFilterAdapter());
+  }
+
+  /// 启动自愈会重试初始化，重复注册会抛 HiveError，因此这里保持幂等
+  static void _register<T>(TypeAdapter<T> adapter) {
+    if (!Hive.isAdapterRegistered(adapter.typeId)) {
+      Hive.registerAdapter(adapter);
+    }
   }
 
   static dynamic _encodeLocalCacheValue(String key, dynamic value) {

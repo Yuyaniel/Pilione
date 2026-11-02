@@ -270,7 +270,7 @@ List<SettingsModel> get extraSettings => [
   const SplitModel(
     normalModel: NormalModel.split(
       title: '设置代理',
-      subtitle: '设置代理 host:port',
+      subtitle: '设置代理 host:port；代理使用自签证书时需另开「禁用 SSL 证书验证」',
       leading: Icon(Icons.airplane_ticket_outlined),
     ),
     switchModel: SwitchModel.split(

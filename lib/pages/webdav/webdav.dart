@@ -73,12 +73,21 @@ class WebDav {
   }
 
   String _getFileName() {
-    return 'pilinara_settings_${DeviceUtils.platformName}.json';
+    return '${Constants.appName.toLowerCase()}_settings_'
+        '${DeviceUtils.platformName}.json';
   }
 
-  /// 改名前的备份文件名，恢复时回退读取，避免升级后读不到既有备份
-  String _getLegacyFileName() {
-    return 'piliplus_settings_${DeviceUtils.platformName}.json';
+  /// 改名前的应用目录名，恢复时回退读取，避免升级后读不到既有备份
+  List<String> _restoreCandidates(_WebDavConfig config) {
+    final dir = config.directory;
+    final separator = dir.lastIndexOf('/');
+    final parent = separator == -1 ? '' : dir.substring(0, separator);
+    final platform = DeviceUtils.platformName;
+    return [
+      '${config.directory}/${_getFileName()}',
+      for (final app in Constants.legacyAppNames)
+        '$parent/$app/${app.toLowerCase()}_settings_$platform.json',
+    ];
   }
 
   Future<void> backup() async {
@@ -114,12 +123,22 @@ class WebDav {
       return;
     }
     try {
-      final base = '${config.directory}/';
-      List<int> data;
-      try {
-        data = await client.read('$base${_getFileName()}');
-      } catch (_) {
-        data = await client.read('$base${_getLegacyFileName()}');
+      List<int>? data;
+      Object? lastError;
+      for (final path in _restoreCandidates(config)) {
+        try {
+          data = await client.read(path);
+          break;
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      if (data == null) {
+        // 把真实原因暴露出来，避免网络故障被误报成「备份不存在」
+        SmartDialog.showToast(
+          lastError == null ? '恢复失败: 未找到备份文件' : '恢复失败: $lastError',
+        );
+        return;
       }
       await GStorage.importAllSettings(utf8.decode(data));
       SmartDialog.showToast('恢复成功');

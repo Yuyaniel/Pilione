@@ -3,6 +3,7 @@ import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/models/common/dynamic/up_panel_position.dart';
 import 'package:PiliPlus/models/dynamics/up.dart';
 import 'package:PiliPlus/pages/dynamics/controller.dart';
+import 'package:PiliPlus/pages/live_follow/view.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/feed_back.dart';
@@ -39,13 +40,14 @@ class _UpPanelState extends State<UpPanel> {
     final theme = Theme.of(context);
     final upData = widget.upData;
     final upList = upData.upList;
+    // 首个入口可在「分组」与「直播」之间切换，由实验室开关控制
+    final showGroup = Pref.dynUpPanelShowGroup;
+    final entryLabel = showGroup ? '分组' : '直播';
     final Widget scrollView = CustomScrollView(
       scrollDirection: isTop ? .horizontal : .vertical,
       physics: const AlwaysScrollableScrollPhysics(),
       controller: controller.scrollController,
       slivers: [
-        // 「分组」入口（原 Live 头位置）：跳转「我的关注」，
-        // 支持分组新建/排序/编辑与按分组浏览成员。
         // 布局与 upItemBuild 完全同构（38px 圆 + spacing4 + 两行文字占位），
         // 保证图标中心线与 UP 头像中心线处于同一水平线。
         SliverToBoxAdapter(
@@ -53,7 +55,9 @@ class _UpPanelState extends State<UpPanel> {
             height: 76,
             width: isTop ? 70 : null,
             child: InkWell(
-              onTap: () => Get.toNamed('/follow'),
+              onTap: () => showGroup
+                  ? Get.toNamed('/follow')
+                  : Get.to(const LiveFollowPage()),
               child: Column(
                 spacing: 4,
                 mainAxisSize: .min,
@@ -65,7 +69,9 @@ class _UpPanelState extends State<UpPanel> {
                       radius: 19,
                       backgroundColor: theme.colorScheme.secondaryContainer,
                       child: Icon(
-                        Icons.folder_shared_outlined,
+                        showGroup
+                            ? Icons.folder_shared_outlined
+                            : Icons.live_tv_outlined,
                         size: 22,
                         color: theme.colorScheme.onSecondaryContainer,
                       ),
@@ -74,7 +80,7 @@ class _UpPanelState extends State<UpPanel> {
                   Padding(
                     padding: const .symmetric(horizontal: 4),
                     child: Text(
-                      isTop ? '分组\n' : '分组',
+                      isTop ? '$entryLabel\n' : entryLabel,
                       maxLines: 2,
                       textAlign: .center,
                       style: TextStyle(

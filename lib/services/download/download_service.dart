@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io' show Directory, File;
 
+import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/download.dart';
 import 'package:PiliPlus/http/init.dart';
@@ -930,7 +931,7 @@ class DownloadService extends GetxService {
   }
 
   static String get _exportBasePath =>
-      path.join('/storage/emulated/0/Download', 'PiliNara');
+      path.join('/storage/emulated/0/Download', Constants.appName);
 
   static Future<String> exportEntry(
     BiliDownloadEntryInfo entry,

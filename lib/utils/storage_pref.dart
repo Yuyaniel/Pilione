@@ -554,6 +554,10 @@ abstract final class Pref {
   static bool get hideDynamicsChargeVideo =>
       _setting.get(SettingBoxKey.hideDynamicsChargeVideo, defaultValue: true);
 
+  /// 动态页 UP 面板首个入口：true 显示「分组」，false 显示「直播」
+  static bool get dynUpPanelShowGroup =>
+      _setting.get(SettingBoxKey.dynUpPanelShowGroup, defaultValue: true);
+
   /// 动态页当前应显示的标签（受「隐藏番剧/专栏」影响）
   static List<DynamicsTabType> get visibleDynamicsTabs => hideDynamicsTabs
       ? const [

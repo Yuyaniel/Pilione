@@ -95,6 +95,120 @@ Future<void> _initAppPath() async {
   appSupportDirPath = (await getApplicationSupportDirectory()).path;
 }
 
+/// 全局错误兜底：不依赖 Catcher2 是否初始化，也不做任何网络上报
+void _installErrorHandlers() {
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    logger.e(
+      'FlutterError',
+      error: details.exception,
+      stackTrace: details.stack,
+    );
+  };
+  PlatformDispatcher.instance.onError = (error, stackTrace) {
+    logger.e('UncaughtException', error: error, stackTrace: stackTrace);
+    return true;
+  };
+  if (kReleaseMode) {
+    // release 下不要灰色错误块，给一个可识别的占位。
+    // 必须自带 Directionality：根节点 build 失败时上层可能没有 MaterialApp。
+    ErrorWidget.builder = (_) => const Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColoredBox(
+        color: Color(0xFF303030),
+        child: Center(
+          child: Icon(Icons.error_outline, color: Color(0xFFBDBDBD)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 启动失败时的兜底页面：让用户知道发生了什么，而不是静默闪退
+class _StartupFailureApp extends StatelessWidget {
+  const _StartupFailureApp({required this.error});
+
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: Color(0xFFC0392B),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '数据文件损坏，应用无法启动',
+                  style: theme.textTheme.titleLarge,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '本地数据文件读取失败，应用无法继续加载。'
+                  '请记录下方错误信息，再按步骤处理。',
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text('$error', style: theme.textTheme.bodySmall),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text('处理步骤', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 8),
+                const Text('1. 复制上面的错误信息，便于排查'),
+                const Text('2. 在系统设置中清除本应用的数据（会退出登录）'),
+                const Text('3. 重新启动应用并登录'),
+                const Text('4. 若此前导出过配置，可在「导入/导出所有数据」中恢复'),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () =>
+                            Utils.copyText('$error', needToast: false),
+                        child: const Text('复制错误信息'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: OutlinedButton(
+                        onPressed: DeviceUtils.exitApp,
+                        child: Text('退出'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 void main() async {
   ScaledWidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -102,9 +216,10 @@ void main() async {
   try {
     await GStorage.init();
   } catch (e) {
-    await Utils.copyText(e.toString(), needToast: false);
     if (kDebugMode) debugPrint('GStorage init error: $e');
-    DeviceUtils.exitApp();
+    // 数据损坏时让用户知道发生了什么，而不是静默闪退
+    runApp(_StartupFailureApp(error: e));
+    return;
   }
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
   await Future.wait([
@@ -190,6 +305,8 @@ void main() async {
   if (Pref.dynamicColor) {
     await MyApp.initPlatformState();
   }
+
+  _installErrorHandlers();
 
   if (Pref.enableLog) {
     // 异常捕获 logo记录

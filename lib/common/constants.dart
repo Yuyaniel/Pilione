@@ -1,5 +1,11 @@
 abstract final class Constants {
-  static const appName = 'PiliNara';
+  static const appName = 'Pilione';
+
+  /// pubspec.yaml 中的包名，用于识别日志栈帧是否来自本项目
+  static const packageName = 'PiliPlus';
+
+  /// 改名前的应用名，用于兼容旧配置包与旧备份
+  static const legacyAppNames = ['PiliNara', 'PiliPlus'];
   // 本 fork 的仓库（关于页 / 检查更新 / 问题反馈都指向这里）
   static const sourceCodeUrl = 'https://github.com/Yuyaniel/Pilione';
   // 上一级上游：PiliNara（本 fork 的基础）

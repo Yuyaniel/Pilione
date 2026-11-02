@@ -424,7 +424,7 @@ class _ReportCard extends StatelessWidget {
                     .map(
                       (i) => TextSpan(
                         text: '$i\n',
-                        style: i.contains('(package:${Constants.appName}')
+                        style: i.contains('(package:${Constants.packageName}')
                             ? TextStyle(
                                 color: colorScheme.onSurface,
                                 fontWeight: .w600,

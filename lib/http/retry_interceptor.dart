@@ -51,6 +51,12 @@ class RetryInterceptor extends Interceptor {
       }
       return handler.next(err);
     } else {
+      // 仅对幂等方法重试：超时意味着请求可能已到达服务端，
+      // 重试 POST/PUT/DELETE 会造成重复提交。
+      final method = err.requestOptions.method.toUpperCase();
+      if (method != 'GET' && method != 'HEAD' && method != 'OPTIONS') {
+        return handler.next(err);
+      }
       switch (err.type) {
         case DioExceptionType.connectionError:
         case DioExceptionType.connectionTimeout:

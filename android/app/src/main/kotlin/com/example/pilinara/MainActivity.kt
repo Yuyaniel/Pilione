@@ -14,7 +14,7 @@ class MainActivity : AudioServiceActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "PiliNara")
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "Pilione")
         methodChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 else -> result.notImplemented()

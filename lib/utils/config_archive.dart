@@ -157,7 +157,7 @@ abstract final class ConfigArchive {
         final tmpFile = File(
           path.join(
             Directory.systemTemp.path,
-            'pilinara_font_import${path.extension(fontEntry.name)}',
+            'pilione_font_import${path.extension(fontEntry.name)}',
           ),
         );
         await tmpFile.writeAsBytes(fontEntry.content);
@@ -190,12 +190,17 @@ abstract final class ConfigArchive {
     }
 
     final sourceApp = meta['appName'];
-    if (sourceApp != Constants.appName) {
+    if (sourceApp != Constants.appName &&
+        !Constants.legacyAppNames.contains(sourceApp)) {
       warnings.writeln('此数据包来自「$sourceApp」，与当前应用不同，可能不完全兼容');
     }
 
     final packageCode = safeToInt(meta['versionCode']);
-    if (packageCode != null && packageCode > BuildConfig.versionCode) {
+    // 旧版本的构建号是 12 位时间戳（如 202610301338），与现在的日期型构建号
+    // 不可比，直接跳过比较，避免把旧备份误判成「来自更新版本」。
+    if (packageCode != null &&
+        packageCode < 100000000000 &&
+        packageCode > BuildConfig.versionCode) {
       final versionName = meta['versionName'];
       warnings.writeln(
         '此数据包来自更新版本（v$versionName，构建号 $packageCode），'

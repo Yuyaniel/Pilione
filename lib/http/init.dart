@@ -144,31 +144,42 @@ class Request {
       enableSystemProxy = false;
     }
 
+    // 证书放宽只由用户显式开关控制，不能因为走系统代理就顺带关闭校验
+    final allowBadCertificate = Pref.badCertificateCallback;
+
+    HttpClient createHttpClient() {
+      final client = HttpClient()
+        ..idleTimeout = const Duration(seconds: 15)
+        ..autoUncompress = false; // Http2Adapter没有自动解压, 统一行为
+      if (enableSystemProxy) {
+        client.findProxy = (_) => 'PROXY $systemProxyHost:$systemProxyPort';
+      }
+      if (allowBadCertificate) {
+        client.badCertificateCallback = (cert, host, port) => true;
+      }
+      return client;
+    }
+
     final http11Adapter = IOHttpClientAdapter(
-      createHttpClient: enableSystemProxy
-          ? () => HttpClient()
-              ..idleTimeout = const Duration(seconds: 15)
-              ..autoUncompress = false
-              ..findProxy = ((_) => 'PROXY $systemProxyHost:$systemProxyPort')
-              ..badCertificateCallback = (cert, host, port) => true
-          : () => HttpClient()
-              ..idleTimeout = const Duration(seconds: 15)
-              ..autoUncompress = false, // Http2Adapter没有自动解压, 统一行为
+      createHttpClient: createHttpClient,
     );
 
     final connectionManager = _enableHttp2
         ? ConnectionManager(
             idleTimeout: const Duration(seconds: 15),
-            onClientCreate: enableSystemProxy
-                ? (_, config) => config
-                    ..proxy = Uri(
-                      scheme: 'http',
-                      host: systemProxyHost,
-                      port: systemProxyPort,
-                    )
-                    ..onBadCertificate = (_) => true
-                : Pref.badCertificateCallback
-                ? (_, config) => config.onBadCertificate = (_) => true
+            onClientCreate: enableSystemProxy || allowBadCertificate
+                ? (_, config) {
+                    if (enableSystemProxy) {
+                      config.proxy = Uri(
+                        scheme: 'http',
+                        host: systemProxyHost,
+                        port: systemProxyPort,
+                      );
+                    }
+                    if (allowBadCertificate) {
+                      config.onBadCertificate = (_) => true;
+                    }
+                  }
                 : null,
           )
         : null;
@@ -191,7 +202,16 @@ class Request {
           ..httpClientAdapter.close(force: true)
           ..httpClientAdapter = h11;
       }
-    } catch (_) {}
+    } catch (e) {
+      // 旧 adapter 已被强制关闭，重建失败时必须回退到可用的 HTTP/1.1 连接，
+      // 否则 dio 会停留在已关闭的 adapter 上，后续请求全部失败且无提示。
+      try {
+        dio
+          ..httpClientAdapter.close(force: true)
+          ..httpClientAdapter = _createPool().$1;
+      } catch (_) {}
+      Utils.reportError(e);
+    }
   }
 
   /*

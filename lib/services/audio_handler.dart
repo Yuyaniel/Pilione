@@ -17,6 +17,7 @@ import 'package:PiliPlus/pages/video/introduction/pgc/controller.dart';
 import 'package:PiliPlus/pages/video/introduction/ugc/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
+import 'package:PiliPlus/services/logger.dart';
 import 'package:PiliPlus/utils/android/bindings.g.dart';
 import 'package:PiliPlus/utils/image_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
@@ -109,23 +110,37 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
       return;
     }
     // 优先匹配 AudioController（听视频模式）
+    var failures = 0;
     try {
       final ctr = Get.find<AudioController>(tag: currentHeroTag!);
       if (ctr.playNext()) return;
-    } catch (_) {}
+    } catch (_) {
+      failures++;
+    }
     // 直接尝试 find，不检查 isRegistered
     try {
       final ctr = Get.find<UgcIntroController>(tag: currentHeroTag!);
       if (ctr.nextPlay()) return;
-    } catch (_) {}
+    } catch (_) {
+      failures++;
+    }
     try {
       final ctr = Get.find<PgcIntroController>(tag: currentHeroTag!);
       if (ctr.nextPlay()) return;
-    } catch (_) {}
+    } catch (_) {
+      failures++;
+    }
     try {
       final ctr = Get.find<LocalIntroController>(tag: currentHeroTag!);
       if (ctr.nextPlay()) return;
-    } catch (_) {}
+    } catch (_) {
+      failures++;
+    }
+    if (failures == 4) {
+      logger.w(
+        '自动连播失败：未找到可用的播放控制器（tag: $currentHeroTag）',
+      );
+    }
   }
 
   @override

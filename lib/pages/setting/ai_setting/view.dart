@@ -600,7 +600,10 @@ class AiSettingPage extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      nameCtl.dispose();
+      promptCtl.dispose();
+    });
   }
 }
 

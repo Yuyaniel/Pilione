@@ -137,6 +137,13 @@ List<SettingsModel> get labSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: 'UP 面板入口显示「分组」',
+    subtitle: '关闭后首个入口改为「直播」，点击直接进入关注的直播间列表',
+    leading: Icon(Icons.swap_horiz),
+    setKey: SettingBoxKey.dynUpPanelShowGroup,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '隐藏「番剧」「专栏」标签',
     subtitle: '动态页顶栏只保留 全部 / 投稿 / UP；需重进动态页或重启后生效',
     leading: Icon(Icons.visibility_off_outlined),

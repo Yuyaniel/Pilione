@@ -45,23 +45,27 @@ abstract final class CacheManager {
     return 0;
   }
 
-  // 循环计算文件的大小
+  // 计算目录占用：单次递归遍历 + 分批并发取长度，避免逐文件串行 await
   @pragma('vm:notify-debugger-on-exception')
   static Future<int> getTotalSizeOfFilesInDir(Directory file) async {
-    int total = 0;
-    await for (final child in file.list(recursive: false)) {
-      if (child is File) {
-        total += await child.length();
-      } else if (child is Directory) {
-        if (path.equals(child.path, manager.cacheDir)) {
-          total += manager.getTotalLength();
-        } else {
-          await for (final i in child.list(recursive: true)) {
-            if (i is File) {
-              total += await i.length();
-            }
-          }
-        }
+    final cacheDir = manager.cacheDir;
+    var total = manager.getTotalLength();
+    final files = <File>[];
+    await for (final entity in file.list(recursive: true, followLinks: false)) {
+      if (entity is! File) continue;
+      // 图片缓存由 cache manager 自行统计，跳过避免重复累加
+      if (path.isWithin(cacheDir, entity.path)) continue;
+      files.add(entity);
+    }
+    const batchSize = 64;
+    for (var i = 0; i < files.length; i += batchSize) {
+      final end = i + batchSize < files.length ? i + batchSize : files.length;
+      final sizes = await Future.wait(
+        // 扫描期间文件可能被删除，单个失败不能拖垮整页统计
+        files.sublist(i, end).map((f) => f.length().catchError((_) => 0)),
+      );
+      for (final size in sizes) {
+        total += size;
       }
     }
     return total;
