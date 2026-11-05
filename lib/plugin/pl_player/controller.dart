@@ -1195,11 +1195,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     final opt = {
       'video-sync': Pref.videoSync,
       if (Platform.isAndroid) 'ao': Pref.audioOutput,
-      'volume': (PlatformUtils.isMobile
-              ? (Pref.enableAppVolume ? volume.value * 100 : Pref.playerVolume)
-              : volume.value * 100)
-          .toString(),
-      'volume-max': kMaxVolume.toString(),
     };
     final autosync = Pref.autosync;
     if (autosync != '0') {
@@ -1211,6 +1206,12 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         logLevel: kDebugMode ? .warn : .error,
         options: opt,
       ),
+    );
+
+    // >100% 的音量走 af 增益+限幅，避免直接放大 mpv volume 导致削波
+    await setVolumeCapped(
+      player,
+      PlatformUtils.isMobile ? Pref.playerVolume / 100 : volume.value,
     );
 
     assert(_videoController == null);
@@ -1714,7 +1715,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       this.volume.value = volume;
       try {
         if (PlatformUtils.isDesktop) {
-          await _videoPlayerController!.setVolume(volume * 100);
+          await setVolumeCapped(_videoPlayerController, volume);
         } else {
           // 移动平台：根据设置选择音量控制方式
           if (Pref.enableAppVolume) {
