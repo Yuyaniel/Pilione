@@ -170,12 +170,15 @@ abstract final class ReplyGrpc {
     if (res case Success(:final response)) {
       final upMid = response.subjectControl.upMid;
       // keyword filter
-      if (response.hasUpTop() &&
-          needRemoveGrpc(
-            response.upTop,
-            upMid: upMid,
-          )) {
-        response.clearUpTop();
+      if (response.hasUpTop()) {
+        final topReply = response.upTop;
+        if (needRemoveGrpc(topReply, upMid: upMid)) {
+          response.clearUpTop();
+        } else {
+          topReply.replies.removeWhere(
+            (item) => needRemoveGrpc(item, upMid: upMid),
+          );
+        }
       }
 
       if (response.replies.isNotEmpty) {
