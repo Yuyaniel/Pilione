@@ -1195,4 +1195,15 @@ class LiveRoomController extends GetxController {
     }
     fansMedalData.refresh();
   }
+
+  void toggleDanmaku() {
+    final newVal = !plPlayerController.enableShowLiveDanmaku.rawValue;
+    plPlayerController.enableShowLiveDanmaku.value = newVal;
+    if (!plPlayerController.tempPlayerConf) {
+      GStorage.setting.put(
+        SettingBoxKey.enableShowLiveDanmaku,
+        newVal,
+      );
+    }
+  }
 }
