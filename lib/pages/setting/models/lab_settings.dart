@@ -19,7 +19,7 @@ List<SettingsModel> get labSettings => [
   // ===== 高画质（第三方服务解锁 1080P 以上） =====
   const SwitchModel(
     title: '高画质播放（实验性）',
-    subtitle: '非大会员经第三方服务获取1080P以上画质，支持普通投稿/课程/番剧/国创/影视',
+    subtitle: '非大会员经第三方服务获取1080P以上画质，仅支持普通投稿视频（BV/av）',
     leading: Icon(Icons.hdr_plus_outlined),
     setKey: SettingBoxKey.highQualityPlayback,
     defaultVal: false,
@@ -227,14 +227,16 @@ Future<void> _showHighQualityServerDialog(
           TextFormField(
             initialValue: server,
             autofocus: true,
-            decoration: const InputDecoration(hintText: 'https://example.com'),
+            decoration: const InputDecoration(
+              hintText: 'http://mxd.indevs.in',
+            ),
             onChanged: (value) => server = value,
           ),
           const SizedBox(height: 12),
           const Text(
-            '必须以 https:// 开头（禁止明文传输登录凭证）。'
-            '启用后会把登录凭证（SESSDATA 等）发送到该地址，'
-            '请只填写自己信任或自建的服务。留空表示不启用。',
+            '必须以 http:// 开头，留空表示不启用。'
+            '登录凭证（SESSDATA 等）会明文发送到该地址，'
+            '请只填写自己信任或自建的服务。',
             style: TextStyle(fontSize: 12),
           ),
         ],
@@ -248,7 +250,7 @@ Future<void> _showHighQualityServerDialog(
           onPressed: () {
             final value = server.trim();
             if (value.isNotEmpty && !HighQualityPlayback.isValidServer(value)) {
-              SmartDialog.showToast('服务地址必须以 https:// 开头');
+              SmartDialog.showToast('服务地址必须以 http:// 开头');
               return;
             }
             Navigator.pop(context, value);

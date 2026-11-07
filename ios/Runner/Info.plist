@@ -141,5 +141,17 @@
 		</array>
 		<key>ITSAppUsesNonExemptEncryption</key>
 		<false/>
-	</dict>
+		<!-- 高画质解析服务只提供 http，单独放行该域名的明文请求 -->
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSExceptionDomains</key>
+			<dict>
+				<key>mxd.indevs.in</key>
+				<dict>
+					<key>NSExceptionAllowsInsecureHTTPLoads</key>
+					<true/>
+				</dict>
+			</dict>
+		</dict>
+		</dict>
 </plist>

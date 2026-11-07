@@ -17,10 +17,15 @@ import 'package:dio/dio.dart';
 /// 由服务端代请求 B 站后返回 playurl 结果，从而在非大会员账号下拿到
 /// 1080P 以上的画质。
 ///
-/// 协议（抓包还原）：
-///   `POST {server}/api/bzview2`
-///   `{"ui": {ua, mid, vip, level, money, cookie, csrf}, "url": "playurl url"}`
+/// 协议（服务端说明）：
+///   `POST {server}/api/bzview2`，{server} 为 http:// 地址（该服务不提供 https）
+///   `{"ui": {mid, cookie}, "url": "https://api.bilibili.com/x/player/wbi/playurl?...&fn=1"}`
+/// 注意 `url` 是交给服务端转发给 B 站的地址，仍是 https，与服务地址的协议无关。
+/// `url.query` 必须包含 `avid` / `bvid` / `cid` / `fn`；`ui` 只要求 mid 与 cookie，
+/// 其余字段是为兼容历史实现而保留，服务端可忽略。
 /// 响应为 B 站 playurl v2 JSON，`data` 可直接交给 [PlayUrlModel.fromJson]。
+///
+/// 只实现普通投稿（bzview2）；番剧/课程的 bzview3 协议不在此范围内。
 abstract final class HighQualityPlayback {
   static const String desktopUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -254,8 +259,7 @@ abstract final class HighQualityPlayback {
       return null;
     }
     if (!isValidServer(server)) {
-      lastStatus =
-          '未启用：服务地址必须以 https:// 开头（禁止明文传输登录凭证）';
+      lastStatus = '未启用：服务地址必须以 http:// 开头';
       return null;
     }
 
@@ -264,6 +268,8 @@ abstract final class HighQualityPlayback {
         'avid': ?avid,
         'bvid': ?bvid,
         'cid': cid,
+        // 服务端说明要求 url.query 含 fn（视频流格式，1 = mp4）
+        'fn': 1,
         'qn': Pref.highQualityPlaybackQuality,
         'fnver': 0,
         'fnval': 4048,
@@ -409,22 +415,21 @@ abstract final class HighQualityPlayback {
     return '$code';
   }
 
-  /// 服务地址必须是 https，禁止用明文 HTTP 发送 SESSDATA / csrf。
+  /// 解析服务只提供 http，因此只接受 http 地址。
+  /// 注意：SESSDATA 等登录凭证会以明文发送到该服务。
   static bool isValidServer(String server) {
     final uri = Uri.tryParse(server.trim());
     return uri != null &&
-        uri.isScheme('https') &&
+        uri.isScheme('http') &&
         uri.host.isNotEmpty &&
         !uri.host.contains(' ');
   }
 
-  /// 由已校验的服务地址拼出 bzview2 端点；非 https 直接拒绝（防御性兜底）。
+  /// 由已校验的服务地址拼出 bzview2 端点。
   static String endpoint(String server) {
     final trimmed = server.trim();
     if (!isValidServer(trimmed)) {
-      throw const FormatException(
-        '服务地址必须以 https:// 开头（禁止明文传输登录凭证）',
-      );
+      throw const FormatException('服务地址必须以 http:// 开头');
     }
     return trimmed.endsWith('/')
         ? '${trimmed}api/bzview2'
