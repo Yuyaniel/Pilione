@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math';
 
@@ -6,6 +7,8 @@ import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
+import 'package:PiliPlus/utils/storage.dart';
+import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:dio/dio.dart';
@@ -43,6 +46,10 @@ abstract final class HighQualityPlayback {
 
   /// 最近一次结果摘要
   static String? lastStatus;
+
+  /// 请求/响应在 localCache 里的键：只在本机留存，不参与配置导出
+  static const String _cacheKeyRequest = LocalCacheKey.highQualityLastRequest;
+  static const String _cacheKeyResponse = LocalCacheKey.highQualityLastResponse;
 
   /// 远端失败后的冷却截止时间，避免每次起播都等超时
   static DateTime? _cooldownUntil;
@@ -136,10 +143,27 @@ abstract final class HighQualityPlayback {
         ),
       );
 
+  /// 进程重启后回填最近一次请求/响应（只在内存为空时读一次缓存）
+  static void restoreLastRecord() {
+    if (lastRequest == null) {
+      final request = GStorage.localCache.get(_cacheKeyRequest);
+      if (request is String && request.isNotEmpty) lastRequest = request;
+    }
+    if (lastResponse == null) {
+      final response = GStorage.localCache.get(_cacheKeyResponse);
+      if (response is String && response.isNotEmpty) lastResponse = response;
+    }
+  }
+
+  static void _persistRecord(String key, String value) =>
+      unawaited(GStorage.localCache.put(key, value));
+
   static void clearLastRecord() {
     lastRequest = null;
     lastResponse = null;
     lastStatus = null;
+    unawaited(GStorage.localCache.delete(_cacheKeyRequest));
+    unawaited(GStorage.localCache.delete(_cacheKeyResponse));
   }
 
   /// 返回 null 表示远端不可用，调用方应回退到正常的 playurl 请求。
@@ -206,6 +230,7 @@ abstract final class HighQualityPlayback {
       };
 
       lastRequest = _clipDebug(_prettyMasked(payload));
+      _persistRecord(_cacheKeyRequest, lastRequest!);
 
       final res = await _client.post<dynamic>(_endpoint(server), data: payload);
 
@@ -213,6 +238,7 @@ abstract final class HighQualityPlayback {
           ? res.data as String
           : jsonEncode(res.data);
       lastResponse = _clipDebug(raw);
+      _persistRecord(_cacheKeyResponse, lastResponse!);
 
       final body = jsonDecode(raw);
       if (body is! Map) {

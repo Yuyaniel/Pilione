@@ -373,7 +373,10 @@ abstract final class LocalCacheKey {
       remarkMids = 'remarkMids',
       cdnNodeList = 'cdnNodeList',
       cdnNodeListTime = 'cdnNodeListTime',
-      cdnNodeRegion = 'cdnNodeRegion';
+      cdnNodeRegion = 'cdnNodeRegion',
+      /// 高画质最近一次远端请求/响应（cookie 已打码），仅本机留存，不参与导出
+      highQualityLastRequest = 'highQualityLastRequest',
+      highQualityLastResponse = 'highQualityLastResponse';
 }
 
 abstract final class VideoBoxKey {
