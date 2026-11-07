@@ -8,34 +8,61 @@ import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 
 abstract final class UrlUtils {
+  static const _redirectTimeout = Duration(seconds: 4);
+  static const _redirectCacheLimit = 100;
+
+  // 短链 → 真实地址，按插入顺序做简单的 LRU
+  static final Map<String, String?> _redirectCache = <String, String?>{};
+
   // 302重定向路由截取
   static Future<String?> parseRedirectUrl(
     String url, [
     bool returnOri = false,
   ]) async {
-    String? redirectUrl;
+    if (_redirectCache.containsKey(url)) {
+      return _redirectCache[url];
+    }
+
+    String? redirectUrl = await _fetchRedirect(url);
+    // 一次重试，覆盖偶发的网络抖动
+    redirectUrl ??= await _fetchRedirect(url);
+    if (redirectUrl == null) {
+      // 失败结果不缓存：网络恢复后下次仍会重新尝试
+      return returnOri ? url : null;
+    }
+    if (redirectUrl.endsWith('/')) {
+      redirectUrl = redirectUrl.substring(0, redirectUrl.length - 1);
+    }
+    if (_redirectCache.length >= _redirectCacheLimit) {
+      _redirectCache.remove(_redirectCache.keys.first);
+    }
+    _redirectCache[url] = redirectUrl;
+    return redirectUrl;
+  }
+
+  static Future<String?> _fetchRedirect(String url) async {
     try {
-      final response = await Request.dio.head(
-        url,
-        options: Options(
-          followRedirects: false,
-          validateStatus: (status) {
-            return 200 <= status! && status < 400;
-          },
-          extra: {'account': AnonymousAccount()},
-        ),
-      );
-      redirectUrl = response.headers['location']?.firstOrNull;
+      final response = await Request.dio
+          .head(
+            url,
+            options: Options(
+              followRedirects: false,
+              validateStatus: (status) {
+                return 200 <= status! && status < 400;
+              },
+              extra: {'account': AnonymousAccount()},
+            ),
+          )
+          .timeout(_redirectTimeout);
+      String? redirectUrl = response.headers['location']?.firstOrNull;
       if (kDebugMode) debugPrint('redirectUrl: $redirectUrl');
       if (redirectUrl != null && !redirectUrl.startsWith('http')) {
         redirectUrl = Uri.parse(url).resolve(redirectUrl).toString();
       }
-    } catch (_) {}
-    if (returnOri && redirectUrl == null) redirectUrl = url;
-    if (redirectUrl != null && redirectUrl.endsWith('/')) {
-      redirectUrl = redirectUrl.substring(0, redirectUrl.length - 1);
+      return redirectUrl;
+    } catch (_) {
+      return null;
     }
-    return redirectUrl;
   }
 
   // 匹配url路由跳转

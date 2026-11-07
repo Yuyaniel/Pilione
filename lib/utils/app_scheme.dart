@@ -1,6 +1,7 @@
 // ignore_for_file: constant_identifier_names
 
-import 'dart:async' show StreamSubscription;
+import 'dart:async' show StreamSubscription, unawaited;
+import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_safe_area.dart';
@@ -30,6 +31,7 @@ import 'package:PiliPlus/utils/url_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
@@ -49,7 +51,85 @@ abstract final class PiliScheme {
     listener = appLinks.uriLinkStream.listen(
       PlatformUtils.isDesktop ? _desktopRoutePush : routePush,
     );
+
+    if (Platform.isAndroid) {
+      unawaited(_initShareChannel());
+    }
   }
+
+  // region 外部分享文本接收（ACTION_SEND / text/plain）
+  static const _shareChannel = MethodChannel('Pilione/share');
+  static int _lastShareSeq = 0;
+
+  static Future<void> _initShareChannel() async {
+    _shareChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onSharedText') {
+        final args = call.arguments;
+        await _handleSharedText(args is Map ? args : null);
+      }
+    });
+    // 冷启动时原生在 Dart handler 注册前就收到了分享文本，这里主动取一次
+    try {
+      final res = await _shareChannel.invokeMethod<Map>('consumeSharedText');
+      await _handleSharedText(res);
+    } catch (_) {}
+  }
+
+  static Future<void> _handleSharedText(Map? args) async {
+    final text = args?['text'] as String?;
+    final seq = args?['seq'] as int? ?? 0;
+    if (text == null || text.isEmpty || seq <= _lastShareSeq) return;
+    _lastShareSeq = seq;
+    final url = _extractBiliUrl(text);
+    if (url == null) {
+      SmartDialog.showToast('分享内容里没找到 B 站链接');
+      return;
+    }
+    await routePushFromUrl(url);
+  }
+
+  static final _urlRegex = RegExp(
+    r'https?://[^\s<>"一-鿿　-〿＀-￯]+',
+    caseSensitive: false,
+  );
+
+  static String? _extractBiliUrl(String text) {
+    for (final match in _urlRegex.allMatches(text)) {
+      final url = match.group(0)!.replaceAll(
+            RegExp(r'[),.，。、；;：:！!？?]+$'),
+            '',
+          );
+      final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+      if (host.contains('bilibili.com') ||
+          host.contains('bilibili.cn') ||
+          host.contains('bilibili.tv') ||
+          host == 'b23.tv' ||
+          host.endsWith('.b23.tv')) {
+        return url;
+      }
+    }
+    final short = RegExp(
+      r'(?:https?://)?b23\.tv/[0-9a-zA-Z]+',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (short != null) {
+      final value = short.group(0)!;
+      return value.startsWith('http') ? value : 'https://$value';
+    }
+    final bv = RegExp(
+      r'BV1[0-9a-zA-Z]{9}',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (bv != null) {
+      return 'https://www.bilibili.com/video/${bv.group(0)}';
+    }
+    final av = RegExp(r'av(\d+)', caseSensitive: false).firstMatch(text);
+    if (av != null) {
+      return 'https://www.bilibili.com/video/${av.group(0)}';
+    }
+    return null;
+  }
+  // endregion
 
   static Future<bool> _desktopRoutePush(Uri uri) {
     WindowController.instance.window
@@ -490,10 +570,15 @@ abstract final class PiliScheme {
 
     // redirect
     if (host.contains(b23_tv)) {
-      String? redirectUrl = await UrlUtils.parseRedirectUrl(uri.toString());
+      final shortUrl = uri.toString();
+      final redirectUrl = await UrlUtils.parseRedirectUrl(shortUrl);
       if (redirectUrl != null) {
         uri = Uri.parse(redirectUrl);
         host = uri.host;
+      } else if (!selfHandle) {
+        SmartDialog.showToast('短链解析失败，已尝试用浏览器打开');
+        await PageUtils.launchURL(shortUrl);
+        return false;
       }
     }
 
