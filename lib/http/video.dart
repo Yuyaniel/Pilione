@@ -307,11 +307,12 @@ abstract final class VideoHttp {
     }
 
     // 高画质播放（第三方服务代请求），失败时回退到正常请求
-    // 默认不请求（按 1080P 起播更快），只有开启「起播自动解锁」或本条视频被手动解锁时才走远端
+    // 起播永远先用官方流：只有用户手动点过「解锁高画质」才在这里走远端。
+    // 开源的「起播后自动切换」由 VideoDetailController 在首帧稳定后另行触发，
+    // 不占用起播路径（见 _scheduleBackgroundHighQuality）。
     if (videoType == .ugc &&
         HighQualityPlayback.enabled &&
-        (HighQualityPlayback.autoOnStartup ||
-            HighQualityPlayback.isUnlocked(cid))) {
+        HighQualityPlayback.isUnlocked(cid)) {
       final remote = await HighQualityPlayback.request(
         avid: avid,
         bvid: bvid,

@@ -26,6 +26,10 @@ import 'package:dio/dio.dart';
 /// 响应为 B 站 playurl v2 JSON，`data` 可直接交给 [PlayUrlModel.fromJson]。
 ///
 /// 只实现普通投稿（bzview2）；番剧/课程的 bzview3 协议不在此范围内。
+///
+/// 调用时机：默认只有用户手动点「解锁高画质」才请求；开启「起播后自动切换」后，
+/// 由 VideoDetailController 在首帧稳定、前向缓冲 ≥5 秒时后台调用一次，
+/// 不占用起播路径。
 abstract final class HighQualityPlayback {
   static const String desktopUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -94,9 +98,6 @@ abstract final class HighQualityPlayback {
 
   /// 解锁失败时撤销标记，避免同一视频每次起播都重试一次远端
   static void clearUnlock() => _unlockedCid = null;
-
-  /// 打开视频是否自动请求远端（用户开关，默认关：起播不被远端拖慢）
-  static bool get autoOnStartup => Pref.highQualityPlaybackOnStartup;
 
   /// 功能已开启且服务地址已配置（不包含冷却判断）
   static bool get configured =>

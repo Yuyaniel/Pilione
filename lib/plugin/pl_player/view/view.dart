@@ -989,6 +989,7 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       }
 
                       videoDetailController
+                        ..cancelBackgroundHighQuality()
                         ..plPlayerController.cacheVideoQa = newQa.code
                         ..currentVideoQa.value = newQa
                         ..updatePlayer();

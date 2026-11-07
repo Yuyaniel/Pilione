@@ -59,6 +59,7 @@ import 'package:PiliPlus/pages/video/send_danmaku/view.dart';
 import 'package:PiliPlus/pages/video/widgets/header_control.dart';
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/plugin/pl_player/models/data_source.dart';
+import 'package:PiliPlus/plugin/pl_player/models/data_status.dart';
 import 'package:PiliPlus/plugin/pl_player/models/heart_beat_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_status.dart';
 import 'package:PiliPlus/services/download/download_library_service.dart';
@@ -429,6 +430,8 @@ class VideoDetailController extends GetxController
     plPlayerController.onFullScreenChanged = (bool fs) async {
       if (!fs || plPlayerController.isLive) return;
       if (isQuerying) return;
+      // 后台正在静默切源，别叠加第二次重开
+      if (_bgQaSwitching) return;
       PlayUrlModel data;
       try {
         data = this.data;
@@ -1107,10 +1110,181 @@ class VideoDetailController extends GetxController
     }
   }
 
+  // ===== 起播后自动切换高画质（两阶段加载） =====
+  //
+  // 第一阶段：起播只请求官方 playurl，不等待第三方服务；
+  // 第二阶段：首帧稳定且前向缓冲 ≥5 秒后，后台请求更高画质并静默切源续播。
+  // 切换失败自动回退原画质；手动改画质 / 切集 / 离开页面都会取消挂起任务。
+
+  Timer? _bgQaTimer;
+  int _bgQaGeneration = 0;
+  int? _bgQaTriedCid;
+  bool _bgQaSwitching = false;
+
+  /// 起播稳定后开始观察缓冲；满足「缓冲 ≥5s 且不卡顿」才真正发请求。
+  void _scheduleBackgroundHighQuality() {
+    if (!isUgc || isFileSource) return;
+    if (!Pref.highQualityPlaybackOnStartup) return;
+    if (!HighQualityPlayback.configured) return;
+    if (HighQualityPlayback.isUnlocked(cid.value)) return;
+    if (_bgQaTriedCid == cid.value) return;
+    _bgQaTriedCid = cid.value;
+
+    final generation = ++_bgQaGeneration;
+    _bgQaTimer?.cancel();
+    final deadline = DateTime.now().add(const Duration(seconds: 40));
+    _bgQaTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (generation != _bgQaGeneration) {
+        timer.cancel();
+        return;
+      }
+      if (isClosed || DateTime.now().isAfter(deadline)) {
+        timer.cancel();
+        return;
+      }
+      if (!_bgQaReady) return;
+      timer.cancel();
+      _bgQaTimer = null;
+      unawaited(_runBackgroundHighQuality(generation));
+    });
+  }
+
+  /// 切源前的安全窗口：已出画面、缓冲充足、不在卡顿 / 小窗 / 其他切换中。
+  bool get _bgQaReady {
+    final ctrl = plPlayerController;
+    if (ctrl.processing || _bgQaSwitching) return false;
+    if (ctrl.isPipMode) return false;
+    // 退到后台时不动播放器，避免把后台播放的音频打断
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return false;
+    }
+    if (!ctrl.dataStatus.loaded) return false;
+    if (ctrl.isBuffering.value) return false;
+    if (!ctrl.playerStatus.isPlaying && !ctrl.playerStatus.isPaused) {
+      return false;
+    }
+    if (ctrl.position.value < 2) return false;
+    return ctrl.buffered.value >= 5;
+  }
+
+  /// 取消挂起的自动切换（手动改画质、切集、离开页面时调用）。
+  void cancelBackgroundHighQuality() {
+    _bgQaGeneration++;
+    _bgQaTimer?.cancel();
+    _bgQaTimer = null;
+  }
+
+  Future<void> _runBackgroundHighQuality(int generation) async {
+    final current = data;
+    final currentCid = cid.value;
+    final remote = await HighQualityPlayback.request(
+      bvid: bvid,
+      cid: currentCid,
+      localDurationMs: _knownDuration,
+    );
+    // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
+    if (remote == null) return;
+    if (generation != _bgQaGeneration ||
+        isClosed ||
+        !identical(current, data) ||
+        _dataCid != currentCid ||
+        cid.value != currentCid) {
+      return;
+    }
+
+    // 只 merge 不替换：低画质档位保留，切换失败可直接回退
+    current.dash?.video?.merge(remote.dash?.video);
+    current.dash?.audio?.merge(remote.dash?.audio);
+
+    final videos = current.dash?.video;
+    if (videos == null || videos.isEmpty) return;
+    final top = videos.map((e) => e.id).reduce(max);
+    final target = Pref.highQualityPlaybackQuality;
+    final effective = target <= top ? target : top;
+    if (effective <= (currentVideoQa.value?.code ?? 0)) return;
+
+    await _switchQualitySilently(effective, generation);
+  }
+
+  /// 静默切画质：隐藏加载指示器、保留播放位置与暂停状态，失败回退。
+  Future<void> _switchQualitySilently(int quality, int generation) async {
+    final ctrl = plPlayerController;
+    final wasPlaying = ctrl.playerStatus.isPlaying;
+    final oldPosition = Duration(milliseconds: ctrl.positionInMilliseconds);
+    final oldQa = currentVideoQa.value;
+    final oldVideoUrl = videoUrl;
+    final oldFirstVideo = firstVideo;
+    final oldDecodeFormats = currentDecodeFormats;
+    final oldCacheQa = ctrl.cacheVideoQa;
+    final oldDefaultST = defaultST;
+    final oldAutoPlay = _autoPlay.value;
+
+    _bgQaSwitching = true;
+    ctrl.suppressBufferingIndicator.value = true;
+    var cancelled = false;
+    try {
+      ctrl.cacheVideoQa = quality;
+      currentVideoQa.value = VideoQuality.fromCode(quality);
+      defaultST = null;
+      playedTime = oldPosition;
+      firstVideo = findVideoByQa(quality, setCodecs: true);
+      videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+
+      bool ok;
+      try {
+        await playerInit(
+          autoplay: wasPlaying,
+        ).timeout(const Duration(seconds: 15));
+        ok = ctrl.dataStatus.value != DataStatus.error;
+      } catch (_) {
+        ok = false;
+      }
+
+      // 期间被手动改画质 / 切集 / 关闭页面接管：交给新操作，既不加 seek 也不回退，
+      // 否则会把用户刚选的画质或新一集的数据源覆盖回旧值
+      cancelled = generation != _bgQaGeneration || isClosed;
+
+      if (cancelled) {
+        return;
+      } else if (ok) {
+        // 切换期间用户拖过进度：以用户给出的位置为准
+        final drift =
+            (ctrl.positionInMilliseconds - oldPosition.inMilliseconds).abs();
+        if (drift > 3000) {
+          await ctrl.seekTo(oldPosition);
+        }
+      } else {
+        // 回退：恢复原数据源与画质，位置、播放状态保持不变
+        currentVideoQa.value = oldQa;
+        videoUrl = oldVideoUrl;
+        firstVideo = oldFirstVideo;
+        currentDecodeFormats = oldDecodeFormats;
+        ctrl.cacheVideoQa = oldCacheQa;
+        defaultST = null;
+        playedTime = oldPosition;
+        try {
+          await playerInit(
+            autoplay: wasPlaying,
+          ).timeout(const Duration(seconds: 15));
+        } catch (_) {
+          SmartDialog.showToast('画质切换失败，请点击画面重载');
+        }
+      }
+    } finally {
+      // 被接管时不能再写回旧值：新一集可能已经设置了新的 defaultST / 自动播放
+      if (!cancelled) {
+        defaultST = oldDefaultST;
+        _autoPlay.value = oldAutoPlay;
+      }
+      ctrl.suppressBufferingIndicator.value = false;
+      _bgQaSwitching = false;
+    }
+  }
+
   /// 用户点了本地没有的档位：按需向高画质服务解析，成功后并入 dash 并立即切换。
   ///
-  /// 这是唯一的服务端请求路径 —— 起播用官方流，只有用户主动切高画质才请求，
-  /// 不浪费请求，也不占用起播带宽。
+  /// 起播永远走官方流；自动切换见 [_scheduleBackgroundHighQuality]，
+  /// 这里只处理用户的手动选择。
   ///
   /// 返回 null 表示已成功切换；否则返回可直接提示给用户的原因。
   /// 之所以要确认目标档位确实存在：`findVideoByQa` 在找不到时会静默回退到最高可用档，
@@ -1156,6 +1330,8 @@ class VideoDetailController extends GetxController
   /// 画质菜单（header_control / pl_player）共用，避免交互逻辑双份漂移。
   /// 前置的可用性/冷却检查和菜单关闭（Get.back）由各调用方自行处理。
   Future<void> unlockQualityWithFeedback(int quality) async {
+    // 手动优先：取消可能已挂起的自动切换，避免两次请求/两次重开
+    cancelBackgroundHighQuality();
     final desc = VideoQuality.fromCode(quality).desc;
     // 贴顶、无遮罩、可穿透：解锁期间画面照常播放，也不拦手势。
     // displayTime 只是兜底，正常路径由下面的 dismiss 关闭。
@@ -1218,6 +1394,10 @@ class VideoDetailController extends GetxController
     bool reinitializePlayer = true,
     bool autoFullScreenFlag = false,
   }) async {
+    // 新数据源会覆盖当前播放，先作废旧的后台高画质任务
+    cancelBackgroundHighQuality();
+    // 手动重载允许对同一条视频再试一次
+    if (fromReset) _bgQaTriedCid = null;
     if (isFileSource) {
       return initPlayerIfNeeded(autoFullScreenFlag);
     }
@@ -1412,6 +1592,8 @@ class VideoDetailController extends GetxController
       }
       if (reinitializePlayer) {
         await initPlayerIfNeeded(autoFullScreenFlag);
+        // 首帧稳定后再在后台升画质，不阻塞起播
+        _scheduleBackgroundHighQuality();
       } else {
         // 从 PiP 返回时，播放器已在运行，但需要重新初始化 SponsorBlock 的跳过监听器
         if (plPlayerController.enableSponsorBlock && segmentList.isNotEmpty) {
@@ -1883,6 +2065,7 @@ class VideoDetailController extends GetxController
 
   @override
   void onClose() {
+    cancelBackgroundHighQuality();
     plPlayerController.onNeedsPlayerInit = null;
     if (isEnteringPip) {
       // 正在进入小窗，保留资源
@@ -1920,6 +2103,9 @@ class VideoDetailController extends GetxController
     }
 
     playedTime = null;
+    // 切分P/视频：作废挂起的后台高画质任务，新的一条重新开始观察
+    cancelBackgroundHighQuality();
+    _bgQaTriedCid = null;
     _dmTrendTaskId++;
     // 切分P/视频时作废全量弹幕任务并清空弹幕数
     _dmFetchTaskId++;

@@ -1106,6 +1106,7 @@ class HeaderControlState extends State<HeaderControl>
                       onTap: () async {
                         final cid = videoDetailCtr.cid.value;
                         Get.back();
+                        videoDetailCtr.cancelBackgroundHighQuality();
                         HighQualityPlayback.unlock(cid);
                         SmartDialog.showToast('正在解锁高画质…');
                         videoDetailCtr.plPlayerController.cacheVideoQa =
@@ -1156,6 +1157,7 @@ class HeaderControlState extends State<HeaderControl>
 
                         Get.back();
                         videoDetailCtr
+                          ..cancelBackgroundHighQuality()
                           ..plPlayerController.cacheVideoQa = newQa.code
                           ..currentVideoQa.value = newQa
                           ..updatePlayer();
