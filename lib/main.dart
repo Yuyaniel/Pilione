@@ -25,6 +25,7 @@ import 'package:PiliPlus/utils/device_utils.dart';
 import 'package:PiliPlus/utils/extension/core_palettes_ext.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/font_utils.dart';
+import 'package:PiliPlus/utils/high_quality_playback.dart';
 import 'package:PiliPlus/utils/ios/pip_helper.dart';
 import 'package:PiliPlus/utils/json_file_handler.dart';
 import 'package:PiliPlus/utils/max_screen_size.dart';
@@ -221,6 +222,8 @@ void main() async {
     runApp(_StartupFailureApp(error: e));
     return;
   }
+  // 进程启动时一次性回填最近一次请求/响应，避免设置页在 build 中读缓存
+  HighQualityPlayback.restoreLastRecord();
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;
   await Future.wait([
     _initDownPath(),

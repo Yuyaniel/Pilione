@@ -1,4 +1,3 @@
-import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math';
 
@@ -57,6 +56,26 @@ abstract final class HighQualityPlayback {
   /// 本次会话手动解锁的 cid（按需解锁：只有用户手动点「解锁高画质」才请求）
   static int? _unlockedCid;
 
+  /// 测试/依赖注入用：注入后 [request] 使用该实例而不是内部自建的 Dio。
+  /// 生产代码保持 null；单测可注入 mock adapter 验证失败分支。
+  static Dio? injectedDio;
+
+  /// 清除记录后置位：阻止 [restoreLastRecord] 把刚删掉的旧缓存又读回来。
+  /// 进程重启后该标志自然消失，此时缓存也已删空，不会复活。
+  static bool _cleared = false;
+
+  /// 重置全部进程内状态（含注入的 Dio），仅供测试/调试调用。
+  static void reset() {
+    lastRequest = null;
+    lastResponse = null;
+    lastStatus = null;
+    _cooldownUntil = null;
+    _unlockedCid = null;
+    _cleared = false;
+    injectedDio = null;
+    _dio = null;
+  }
+
   /// 该 cid 是否已被手动解锁
   static bool isUnlocked(int? cid) => cid != null && cid == _unlockedCid;
 
@@ -90,10 +109,46 @@ abstract final class HighQualityPlayback {
     return true;
   }
 
-  /// 失败后 30 秒内不再尝试，起播优先保证速度
-  static void _enterCooldown() {
-    _cooldownUntil = DateTime.now().add(const Duration(seconds: 30));
-    lastStatus = '${lastStatus ?? '失败'}（冷却 30 秒，期间不再尝试）';
+  /// 失败后冷却：网络类故障（超时/连不上）只冷却 5 秒，业务类错误 30 秒。
+  /// 起播路径优先保证速度，短冷却让偶发抖动能快速自愈。
+  static void _enterCooldown({bool networkError = false}) {
+    final seconds = networkError ? 5 : 30;
+    _cooldownUntil = DateTime.now().add(Duration(seconds: seconds));
+    lastStatus = '${lastStatus ?? '失败'}（冷却 $seconds 秒，期间不再尝试）';
+  }
+
+  /// 网络类异常判定：超时 / 连不上 / 证书问题，归为可快速重试。
+  static bool _isNetworkError(Object e) {
+    if (e is! DioException) return false;
+    return switch (e.type) {
+      DioExceptionType.connectionTimeout ||
+      DioExceptionType.sendTimeout ||
+      DioExceptionType.receiveTimeout ||
+      DioExceptionType.transformTimeout ||
+      DioExceptionType.connectionError ||
+      DioExceptionType.badCertificate => true,
+      _ => false,
+    };
+  }
+
+  /// 把底层异常映射成可直接展示的中文短句，不把 DioException 原文抛给用户。
+  static String friendlyError(Object e) {
+    if (e is DioException) {
+      return switch (e.type) {
+        DioExceptionType.connectionTimeout => '连接服务超时，请稍后重试',
+        DioExceptionType.sendTimeout => '请求发送超时，请稍后重试',
+        DioExceptionType.receiveTimeout => '服务响应超时，请稍后重试或检查服务地址',
+        DioExceptionType.transformTimeout => '响应解析超时，请稍后重试',
+        DioExceptionType.connectionError => '无法连接服务，请检查网络或服务地址',
+        DioExceptionType.badCertificate => '服务证书校验失败，请检查 HTTPS 配置',
+        DioExceptionType.badResponse =>
+          '服务返回异常（HTTP ${e.response?.statusCode ?? '未知'}）',
+        DioExceptionType.cancel => '请求已取消',
+        DioExceptionType.unknown => '请求失败，请稍后重试',
+      };
+    }
+    if (e is FormatException) return e.message;
+    return '请求失败，请稍后重试';
   }
 
   /// 剩余冷却秒数，0 表示未在冷却
@@ -107,12 +162,12 @@ abstract final class HighQualityPlayback {
   /// 调试记录只保留有限长度，避免长驻内存
   static const int _maxDebugChars = 8000;
 
-  static String _clipDebug(String value) => value.length <= _maxDebugChars
+  static String clipDebug(String value) => value.length <= _maxDebugChars
       ? value
       : '${value.substring(0, _maxDebugChars)}\n…（已截断，原文 ${value.length} 字符）';
 
   /// 按设置的上限画质裁剪返回流，保证「不高于该画质」
-  static void _trimToQualityCap(PlayUrlModel model, int cap) {
+  static void trimToQualityCap(PlayUrlModel model, int cap) {
     if (cap <= 0) return;
     model.dash?.video?.removeWhere((item) => item.id > cap);
     model.supportFormats?.removeWhere((item) => (item.quality ?? 0) > cap);
@@ -125,26 +180,30 @@ abstract final class HighQualityPlayback {
 
   static Dio? _dio;
 
-  static Dio get _client =>
-      _dio ??= Dio(
-        BaseOptions(
-          // 起播路径上的前置请求，超时必须短，慢就直接回退本地 playurl
-          connectTimeout: const Duration(milliseconds: 2500),
-          sendTimeout: const Duration(milliseconds: 2500),
-          receiveTimeout: const Duration(seconds: 8),
-          headers: const {
-            'user-agent': desktopUa,
-            'accept': '*/*',
-            'accept-language': 'zh-CN,zh;q=0.9',
-            'content-type': 'application/json',
-            'origin': 'https://www.bilibili.com',
-            'referer': 'https://www.bilibili.com/',
-          },
-        ),
-      );
+  static Dio get _client {
+    final injected = injectedDio;
+    if (injected != null) return injected;
+    return _dio ??= Dio(
+      BaseOptions(
+        // 起播路径上的前置请求，超时必须短，慢就直接回退本地 playurl
+        connectTimeout: const Duration(milliseconds: 2500),
+        sendTimeout: const Duration(milliseconds: 2500),
+        receiveTimeout: const Duration(seconds: 8),
+        headers: const {
+          'user-agent': desktopUa,
+          'accept': '*/*',
+          'accept-language': 'zh-CN,zh;q=0.9',
+          'content-type': 'application/json',
+          'origin': 'https://www.bilibili.com',
+          'referer': 'https://www.bilibili.com/',
+        },
+      ),
+    );
+  }
 
   /// 进程重启后回填最近一次请求/响应（只在内存为空时读一次缓存）
   static void restoreLastRecord() {
+    if (_cleared) return;
     if (lastRequest == null) {
       final request = GStorage.localCache.get(_cacheKeyRequest);
       if (request is String && request.isNotEmpty) lastRequest = request;
@@ -155,15 +214,30 @@ abstract final class HighQualityPlayback {
     }
   }
 
-  static void _persistRecord(String key, String value) =>
-      unawaited(GStorage.localCache.put(key, value));
+  static Future<void> _persistRecord(String key, String value) async {
+    _cleared = false;
+    try {
+      await GStorage.localCache.put(key, value);
+    } catch (_) {
+      // 缓存写入失败不影响主流程（记录只用于调试查看）
+    }
+  }
 
-  static void clearLastRecord() {
+  /// 清除内存与本地缓存；await 两个删除完成后再返回，避免「清除后复活」竞态。
+  static Future<void> clearLastRecord() async {
     lastRequest = null;
     lastResponse = null;
     lastStatus = null;
-    unawaited(GStorage.localCache.delete(_cacheKeyRequest));
-    unawaited(GStorage.localCache.delete(_cacheKeyResponse));
+    _cooldownUntil = null; // 状态行与冷却显示保持一致
+    _cleared = true;
+    try {
+      await GStorage.localCache.deleteAll([
+        _cacheKeyRequest,
+        _cacheKeyResponse,
+      ]);
+    } catch (_) {
+      // 删不掉也不影响高画质功能；内存字段已清空
+    }
   }
 
   /// 返回 null 表示远端不可用，调用方应回退到正常的 playurl 请求。
@@ -177,6 +251,11 @@ abstract final class HighQualityPlayback {
     final account = Accounts.video;
     if (server.isEmpty || !account.isLogin) {
       lastStatus = '未启用：服务地址为空或视频账号未登录';
+      return null;
+    }
+    if (!isValidServer(server)) {
+      lastStatus =
+          '未启用：服务地址必须以 https:// 开头（禁止明文传输登录凭证）';
       return null;
     }
 
@@ -197,7 +276,7 @@ abstract final class HighQualityPlayback {
         'client_attr': 0,
         'version_name': '4.10.6',
         'app_id': 100,
-        'session': _randomSession(),
+        'session': randomSession(),
         'voice_balance': 1,
         'try_look': 0,
         'web_location': 1315873,
@@ -219,7 +298,7 @@ abstract final class HighQualityPlayback {
       final payload = <String, dynamic>{
         'ui': {
           'ua': desktopUa,
-          'mid': '${userInfo?.mid ?? _midFromCookie(cookie)}',
+          'mid': '${userInfo?.mid ?? midFromCookie(cookie)}',
           'vip': userInfo?.vipStatus ?? 0,
           'level': userInfo?.levelInfo?.currentLevel ?? 0,
           'money': userInfo?.money ?? 0,
@@ -229,16 +308,16 @@ abstract final class HighQualityPlayback {
         'url': url,
       };
 
-      lastRequest = _clipDebug(_prettyMasked(payload));
-      _persistRecord(_cacheKeyRequest, lastRequest!);
+      lastRequest = clipDebug(prettyMasked(payload));
+      await _persistRecord(_cacheKeyRequest, lastRequest!);
 
-      final res = await _client.post<dynamic>(_endpoint(server), data: payload);
+      final res = await _client.post<dynamic>(endpoint(server), data: payload);
 
       final raw = res.data is String
           ? res.data as String
           : jsonEncode(res.data);
-      lastResponse = _clipDebug(raw);
-      _persistRecord(_cacheKeyResponse, lastResponse!);
+      lastResponse = clipDebug(raw);
+      await _persistRecord(_cacheKeyResponse, lastResponse!);
 
       final body = jsonDecode(raw);
       if (body is! Map) {
@@ -266,7 +345,7 @@ abstract final class HighQualityPlayback {
       }
 
       // 「目标画质」是上限：裁掉高于上限的流
-      _trimToQualityCap(playUrl, Pref.highQualityPlaybackQuality);
+      trimToQualityCap(playUrl, Pref.highQualityPlaybackQuality);
       if (playUrl.dash?.video?.isNotEmpty != true) {
         lastStatus =
             '失败：上限画质 ${_qualityDesc(Pref.highQualityPlaybackQuality)} 低于可用档位';
@@ -291,10 +370,25 @@ abstract final class HighQualityPlayback {
           '${codes.isEmpty ? '' : '，共 ${codes.length} 档'}';
       return playUrl;
     } catch (e) {
-      lastStatus = '失败：$e';
-      _enterCooldown();
+      lastStatus = '失败：${friendlyError(e)}';
+      _enterCooldown(networkError: _isNetworkError(e));
       return null;
     }
+  }
+
+  /// 画质菜单点击灰档前的统一前置检查：返回 null 表示可解锁，否则给出提示文案。
+  /// header_control 与 pl_player 共用，避免两处判断与文案漂移。
+  static String? unlockBlockedReason() {
+    if (!configured) {
+      return '标灰画质需要bilibili会员（已是会员？请关闭无痕模式）';
+    }
+    if (_inCooldown) {
+      return '高画质服务冷却中，$cooldownSecondsLeft 秒后可重试';
+    }
+    if (!enabled) {
+      return '高画质服务暂不可用，请稍后重试';
+    }
+    return null;
   }
 
   /// 服务端要求的登录信息，便于确认发出去的是哪个账号
@@ -315,19 +409,47 @@ abstract final class HighQualityPlayback {
     return '$code';
   }
 
-  static String _endpoint(String server) =>
-      server.endsWith('/') ? '${server}api/bzview2' : '$server/api/bzview2';
+  /// 服务地址必须是 https，禁止用明文 HTTP 发送 SESSDATA / csrf。
+  static bool isValidServer(String server) {
+    final uri = Uri.tryParse(server.trim());
+    return uri != null &&
+        uri.isScheme('https') &&
+        uri.host.isNotEmpty &&
+        !uri.host.contains(' ');
+  }
 
-  static String _prettyMasked(Map<String, dynamic> payload) {
+  /// 由已校验的服务地址拼出 bzview2 端点；非 https 直接拒绝（防御性兜底）。
+  static String endpoint(String server) {
+    final trimmed = server.trim();
+    if (!isValidServer(trimmed)) {
+      throw const FormatException(
+        '服务地址必须以 https:// 开头（禁止明文传输登录凭证）',
+      );
+    }
+    return trimmed.endsWith('/')
+        ? '${trimmed}api/bzview2'
+        : '$trimmed/api/bzview2';
+  }
+
+  /// 调试用请求体：cookie / csrf / 余额全部打码，mid 只保留尾 2 位。
+  /// 这份文本会被持久化到未加密的 localCache，也能被「复制全部」导出，
+  /// 因此任何可复用的登录凭证都不能以明文出现。
+  static String prettyMasked(Map<String, dynamic> payload) {
     final ui = Map<String, dynamic>.from(payload['ui'] as Map);
-    ui['cookie'] = _maskCookie(ui['cookie'] as String? ?? '');
+    ui['cookie'] = maskCookie(ui['cookie'] as String? ?? '');
+    ui['csrf'] = '***';
+    ui['money'] = '***';
+    final mid = '${ui['mid'] ?? ''}';
+    ui['mid'] = mid.length > 2
+        ? '${'*' * (mid.length - 2)}${mid.substring(mid.length - 2)}'
+        : '***';
     return const JsonEncoder.withIndent('  ').convert({
       'ui': ui,
       'url': payload['url'],
     });
   }
 
-  static String _maskCookie(String cookie) => cookie
+  static String maskCookie(String cookie) => cookie
       .split(';')
       .map((item) => item.trim())
       .where((item) => item.isNotEmpty)
@@ -338,7 +460,7 @@ abstract final class HighQualityPlayback {
       })
       .join('; ');
 
-  static int _midFromCookie(String cookie) {
+  static int midFromCookie(String cookie) {
     for (final item in cookie.split(';')) {
       final pair = item.trim().split('=');
       if (pair.length == 2 && pair[0] == 'DedeUserID') {
@@ -348,7 +470,7 @@ abstract final class HighQualityPlayback {
     return 0;
   }
 
-  static String _randomSession() {
+  static String randomSession() {
     final rnd = Random();
     return List.generate(32, (_) => rnd.nextInt(16).toRadixString(16)).join();
   }

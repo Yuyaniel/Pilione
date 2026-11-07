@@ -177,14 +177,15 @@ class DynamicItemModel {
 
   /// 充电专属视频的徽标有两种形态：
   /// 「充电专属」为正式文案，「抢先看」是非充电粉丝看到的预告形态。
-  /// 不依赖 isOnlyFans（部分场景该字段不置位），只认 AV 类型 + 徽标文案，
-  /// 避免误伤番剧/纪录片的「抢先看」（那是 PGC 类型）。
-  bool get hasChargeOnlyBadge => switch (
-        modules.moduleDynamic?.major?.archive?.badge?.text
-      ) {
-        '充电专属' || '抢先看' => true,
-        _ => false,
-      };
+  /// 仅限 AV 类型：番剧/纪录片的「抢先看」（PGC）不在此列。
+  /// 徽标文案若被 B 站改动，用 basic.isOnlyFans 兜底，避免静默失效。
+  bool get hasChargeOnlyBadge {
+    if (type != 'DYNAMIC_TYPE_AV') return false;
+    return switch (modules.moduleDynamic?.major?.archive?.badge?.text) {
+      '充电专属' || '抢先看' => true,
+      _ => basic?.isOnlyFans ?? false,
+    };
+  }
 
   bool get hasDynVideoBadge =>
       modules.moduleDynamic?.major?.archive?.badge?.text == '动态视频';

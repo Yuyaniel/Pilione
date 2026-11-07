@@ -1141,16 +1141,10 @@ class HeaderControlState extends State<HeaderControl>
 
                         // 本地没有这一档：点了才向高画质服务请求，成功后切过去
                         if (!availableQa.contains(quality)) {
-                          if (!HighQualityPlayback.configured) {
-                            SmartDialog.showToast(
-                              '标灰画质需要bilibili会员（已是会员？请关闭无痕模式）',
-                            );
-                            return;
-                          }
-                          if (!HighQualityPlayback.enabled) {
-                            SmartDialog.showToast(
-                              '高画质服务冷却中，${HighQualityPlayback.cooldownSecondsLeft} 秒后可重试',
-                            );
+                          final blockedReason =
+                              HighQualityPlayback.unlockBlockedReason();
+                          if (blockedReason != null) {
+                            SmartDialog.showToast(blockedReason);
                             return;
                           }
                           Get.back();

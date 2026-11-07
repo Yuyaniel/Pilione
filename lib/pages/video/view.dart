@@ -655,11 +655,14 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
   }
 
   /// 播放到「位置 + 累计观看」双条件时自动点赞
-  /// （同一视频成功一次即可，失败会重试）
+  /// （同一视频成功一次即可；失败最多重试 [_autoLikeMaxAttempts] 次，指数退避）
   String? _autoLikeKey;
   String? _autoLikePendingKey;
-  int _autoLikeAttemptAt = 0;
   static const int _autoLikeRetryMs = 15000;
+  static const int _autoLikeMaxAttempts = 5;
+  int _autoLikeAttempts = 0;
+  final Stopwatch _autoLikeClock = Stopwatch()..start();
+  int _autoLikeAttemptAt = 0;
 
   /// 累计实际观看时长（ms）：只累加正常播放的增量，拖动/回退不计入
   int _watchedMs = 0;
@@ -689,6 +692,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
       _watchedMs = 0;
       _lastPositionMs = null;
       _watchedSeeded = false;
+      _autoLikeAttempts = 0;
+      _autoLikePendingKey = null;
     }
     final total =
         videoDetailController.plPlayerController.durationInMilliseconds;
@@ -726,6 +731,8 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     if (intro.hasLike.value) {
       // 已点赞（含手动点赞），标记完成
       _autoLikeKey = key;
+      _autoLikeAttempts = 0;
+      _autoLikePendingKey = null;
       return;
     }
     if (_autoLikeKey == key) return;
@@ -740,11 +747,16 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
     }
     // 请求在途时不重复触发；超过退避时间仍未变成已赞，说明上次失败，允许重试。
     // （actionLikeVideo 在接口层声明为 void，拿不到返回值，只能靠 hasLike 判断结果）
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (_autoLikePendingKey == key &&
-        now - _autoLikeAttemptAt < _autoLikeRetryMs) {
+    // 用单调时钟 Stopwatch 而非墙钟，避免用户改系统时间绕过退避；
+    // 每个视频最多重试 [_autoLikeMaxAttempts] 次，避免接口异常时无限请求。
+    final now = _autoLikeClock.elapsedMilliseconds;
+    final shift = _autoLikeAttempts > 4 ? 4 : _autoLikeAttempts;
+    final backoff = _autoLikeRetryMs << shift;
+    if (_autoLikePendingKey == key && now - _autoLikeAttemptAt < backoff) {
       return;
     }
+    if (_autoLikeAttempts >= _autoLikeMaxAttempts) return;
+    _autoLikeAttempts += 1;
     _autoLikePendingKey = key;
     _autoLikeAttemptAt = now;
     intro.actionLikeVideo();

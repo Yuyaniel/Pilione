@@ -73,8 +73,6 @@ List<SettingsModel> get labSettings => [
     title: '查看最近一次远端请求',
     leading: const Icon(Icons.upload_outlined),
     getSubtitle: () {
-      // 进程重启后从本地缓存回填，否则这里永远显示「暂无记录」
-      HighQualityPlayback.restoreLastRecord();
       final request = HighQualityPlayback.lastRequest;
       return request == null
           ? '暂无记录，播放一次视频后可查看'
@@ -90,7 +88,6 @@ List<SettingsModel> get labSettings => [
     title: '查看最近一次远端响应',
     leading: const Icon(Icons.download_outlined),
     getSubtitle: () {
-      HighQualityPlayback.restoreLastRecord();
       final response = HighQualityPlayback.lastResponse;
       return response == null
           ? '暂无记录，播放一次视频后可查看'
@@ -113,7 +110,7 @@ List<SettingsModel> get labSettings => [
         content: const Text('仅删除最近一次请求与响应的本地副本，不影响高画质功能。'),
       );
       if (!ok) return;
-      HighQualityPlayback.clearLastRecord();
+      await HighQualityPlayback.clearLastRecord();
       setState();
       SmartDialog.showToast('已清除');
     },
@@ -230,11 +227,12 @@ Future<void> _showHighQualityServerDialog(
           TextFormField(
             initialValue: server,
             autofocus: true,
-            decoration: const InputDecoration(hintText: 'http://example.com'),
+            decoration: const InputDecoration(hintText: 'https://example.com'),
             onChanged: (value) => server = value,
           ),
           const SizedBox(height: 12),
           const Text(
+            '必须以 https:// 开头（禁止明文传输登录凭证）。'
             '启用后会把登录凭证（SESSDATA 等）发送到该地址，'
             '请只填写自己信任或自建的服务。留空表示不启用。',
             style: TextStyle(fontSize: 12),
@@ -247,7 +245,14 @@ Future<void> _showHighQualityServerDialog(
           child: const Text('取消'),
         ),
         TextButton(
-          onPressed: () => Navigator.pop(context, server.trim()),
+          onPressed: () {
+            final value = server.trim();
+            if (value.isNotEmpty && !HighQualityPlayback.isValidServer(value)) {
+              SmartDialog.showToast('服务地址必须以 https:// 开头');
+              return;
+            }
+            Navigator.pop(context, value);
+          },
           child: const Text('确定'),
         ),
       ],

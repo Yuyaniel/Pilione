@@ -1167,7 +1167,7 @@ class VideoDetailController extends GetxController
       builder: (context) => _buildUnlockPill(context, '正在解锁 $desc…'),
     );
     final error = await unlockQuality(quality).catchError(
-      (Object e) => '解锁异常：$e',
+      (Object e) => '解锁异常：${HighQualityPlayback.friendlyError(e)}',
     );
     // 必须指定 loading：默认的 smart 会先关掉最顶层弹窗（可能是别的 toast）
     await SmartDialog.dismiss(status: SmartStatus.loading);

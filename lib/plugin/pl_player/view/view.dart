@@ -976,10 +976,10 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                       final newQa = VideoQuality.fromCode(quality);
 
                       if (!isAvailable) {
-                        if (!HighQualityPlayback.enabled) {
-                          SmartDialog.showToast(
-                            '高画质服务冷却中，${HighQualityPlayback.cooldownSecondsLeft} 秒后可重试',
-                          );
+                        final blockedReason =
+                            HighQualityPlayback.unlockBlockedReason();
+                        if (blockedReason != null) {
+                          SmartDialog.showToast(blockedReason);
                           return;
                         }
                         await videoDetailController.unlockQualityWithFeedback(
