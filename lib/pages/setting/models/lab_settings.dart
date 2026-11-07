@@ -1,3 +1,4 @@
+import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
@@ -72,6 +73,8 @@ List<SettingsModel> get labSettings => [
     title: '查看最近一次远端请求',
     leading: const Icon(Icons.upload_outlined),
     getSubtitle: () {
+      // 进程重启后从本地缓存回填，否则这里永远显示「暂无记录」
+      HighQualityPlayback.restoreLastRecord();
       final request = HighQualityPlayback.lastRequest;
       return request == null
           ? '暂无记录，播放一次视频后可查看'
@@ -87,6 +90,7 @@ List<SettingsModel> get labSettings => [
     title: '查看最近一次远端响应',
     leading: const Icon(Icons.download_outlined),
     getSubtitle: () {
+      HighQualityPlayback.restoreLastRecord();
       final response = HighQualityPlayback.lastResponse;
       return response == null
           ? '暂无记录，播放一次视频后可查看'
@@ -97,6 +101,22 @@ List<SettingsModel> get labSettings => [
       title: '最近一次远端响应',
       getContent: () => HighQualityPlayback.lastResponse,
     ),
+  ),
+  NormalModel(
+    title: '清除最近一次远端请求/响应',
+    leading: const Icon(Icons.delete_outline),
+    getSubtitle: () => '记录只保存在本机、不参与配置导出；清除后不影响高画质功能',
+    onTap: (context, setState) async {
+      final ok = await showConfirmDialog(
+        context: context,
+        title: const Text('清除远端请求/响应记录'),
+        content: const Text('仅删除最近一次请求与响应的本地副本，不影响高画质功能。'),
+      );
+      if (!ok) return;
+      HighQualityPlayback.clearLastRecord();
+      setState();
+      SmartDialog.showToast('已清除');
+    },
   ),
   const SwitchModel(
     title: '不忽略过短的远端流（调试）',
