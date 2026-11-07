@@ -167,3 +167,6 @@ test*
 /pubspec_overrides.yaml
 .mindfs
 .agents 
+
+# Build artifacts: never commit APKs to git
+*.apk
