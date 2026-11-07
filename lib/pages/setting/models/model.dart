@@ -138,6 +138,15 @@ class NormalModel extends SettingsModel {
   final Widget Function(ThemeData theme)? getTrailing;
   final void Function(BuildContext context, VoidCallback setState)? onTap;
 
+  /// getSubtitle 内部读取 Rx 时置 true，让该项随数据实时刷新
+  final bool reactive;
+
+  /// subtitle 需要两行时置 true
+  final bool? isThreeLine;
+
+  /// subtitle 最大行数；null 表示不限制
+  final int? subtitleMaxLines;
+
   const NormalModel({
     super.subtitle,
     super.leading,
@@ -148,6 +157,9 @@ class NormalModel extends SettingsModel {
     this.getSubtitle,
     this.getTrailing,
     this.onTap,
+    this.reactive = false,
+    this.isThreeLine,
+    this.subtitleMaxLines,
   }) : assert(title != null || getTitle != null);
 
   const NormalModel.split({
@@ -159,6 +171,9 @@ class NormalModel extends SettingsModel {
     this.getTitle,
     this.getSubtitle,
     this.getTrailing,
+    this.reactive = false,
+    this.isThreeLine,
+    this.subtitleMaxLines,
   }) : onTap = null,
        assert(title != null || getTitle != null);
 
@@ -178,6 +193,9 @@ class NormalModel extends SettingsModel {
     onTap: onTap,
     contentPadding: contentPadding,
     titleStyle: titleStyle,
+    reactive: reactive,
+    isThreeLine: isThreeLine,
+    subtitleMaxLines: subtitleMaxLines,
   );
 }
 
@@ -411,7 +429,7 @@ SettingsModel getListUidModel({
 
       if (result != null) {
         final newUids = result
-            .map((e) => int.tryParse(e))
+            .map(int.tryParse)
             .where((e) => e != null)
             .cast<int>()
             .toSet();

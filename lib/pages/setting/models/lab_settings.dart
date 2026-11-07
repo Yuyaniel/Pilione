@@ -64,10 +64,33 @@ List<SettingsModel> get labSettings => [
       return left > 0 ? '$status（冷却剩余 ${left}s）' : status;
     },
   ),
-  const NormalModel.split(
+  NormalModel(
     title: '高画质所用账号',
-    leading: Icon(Icons.person_outline),
-    getSubtitle: HighQualityPlayback.describeAccount,
+    leading: const Icon(Icons.person_outline),
+    reactive: true,
+    isThreeLine: true,
+    subtitleMaxLines: 2,
+    getSubtitle: () {
+      final left = HighQualityPlayback.remainingCount;
+      final quota = left < 0
+          ? '剩余解析次数未知（点击刷新）'
+          : '今日剩余解析次数 $left/100';
+      return '${HighQualityPlayback.describeAccount()}\n$quota';
+    },
+    onTap: (context, _) async {
+      // 查询最坏要等连接超时，给一个轻量反馈
+      SmartDialog.showLoading(
+        usePenetrate: true,
+        maskColor: Colors.transparent,
+        displayTime: const Duration(seconds: 6),
+      );
+      final left = await HighQualityPlayback.refreshRemaining();
+      await SmartDialog.dismiss(status: SmartStatus.loading);
+      if (!context.mounted) return;
+      SmartDialog.showToast(
+        left == null ? '剩余次数获取失败' : '今日剩余解析次数 $left 次',
+      );
+    },
   ),
   NormalModel(
     title: '查看最近一次远端请求',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
@@ -11,6 +12,7 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/wbi_sign.dart';
 import 'package:dio/dio.dart';
+import 'package:get/get.dart' show RxInt;
 
 /// 高画质播放：
 /// 把网页版 playurl 的原始参数集与登录凭证交给第三方服务，
@@ -55,6 +57,24 @@ abstract final class HighQualityPlayback {
   /// 最近一次结果摘要
   static String? lastStatus;
 
+  /// 今日剩余解析次数 = 100 - 服务端 today；-1 表示尚未获取
+  static final RxInt remaining = RxInt(-1);
+
+  /// 查询时的账号 mid：切换账号后旧数值不再可信
+  static int? _quotaMid;
+
+  /// 进行中的次数查询，并发调用共享同一个结果
+  static Future<int?>? _quotaFuture;
+
+  /// 当前账号的剩余次数；账号已切换或从未查询时返回 -1
+  static int get remainingCount {
+    final currentMid = Pref.userInfoCache?.mid;
+    if (_quotaMid != null && currentMid != null && currentMid != _quotaMid) {
+      return -1;
+    }
+    return remaining.value;
+  }
+
   /// 请求/响应在 localCache 里的键：只在本机留存，不参与配置导出
   static const String _cacheKeyRequest = LocalCacheKey.highQualityLastRequest;
   static const String _cacheKeyResponse = LocalCacheKey.highQualityLastResponse;
@@ -78,6 +98,9 @@ abstract final class HighQualityPlayback {
     lastRequest = null;
     lastResponse = null;
     lastStatus = null;
+    remaining.value = -1;
+    _quotaMid = null;
+    _quotaFuture = null;
     _cooldownUntil = null;
     _unlockedCid = null;
     _cleared = false;
@@ -296,11 +319,7 @@ abstract final class HighQualityPlayback {
       }).toString();
 
       final userInfo = Pref.userInfoCache;
-      final cookie = account.cookieJar
-          .toJson()
-          .entries
-          .map((entry) => '${entry.key}=${entry.value}')
-          .join('; ');
+      final cookie = _currentCookie(account);
 
       final payload = <String, dynamic>{
         'ui': {
@@ -375,6 +394,8 @@ abstract final class HighQualityPlayback {
           : codes.reduce((a, b) => a > b ? a : b);
       lastStatus = '成功：最高 ${_qualityDesc(highest)}'
           '${codes.isEmpty ? '' : '，共 ${codes.length} 档'}';
+      // 服务端已计一次解析，后台刷新剩余次数（与提示共用同一次请求）
+      unawaited(refreshRemaining());
       return playUrl;
     } catch (e) {
       lastStatus = '失败：${friendlyError(e)}';
@@ -435,6 +456,64 @@ abstract final class HighQualityPlayback {
     return trimmed.endsWith('/')
         ? '${trimmed}api/bzview2'
         : '$trimmed/api/bzview2';
+  }
+
+  /// 由已校验的服务地址拼出 bzusta 端点（查询当日已用次数）。
+  static String quotaEndpoint(String server) {
+    final trimmed = server.trim();
+    if (!isValidServer(trimmed)) {
+      throw const FormatException('服务地址必须以 http:// 开头');
+    }
+    return trimmed.endsWith('/')
+        ? '${trimmed}api/bzusta'
+        : '$trimmed/api/bzusta';
+  }
+
+  /// 当前视频账号的 cookie 串
+  static String _currentCookie(Account account) => account.cookieJar
+      .toJson()
+      .entries
+      .map((entry) => '${entry.key}=${entry.value}')
+      .join('; ');
+
+  /// 查询今日剩余解析次数（100 - today）。
+  /// 失败返回 null 并保留上一次的值，不打扰用户；并发调用共享同一次请求。
+  static Future<int?> refreshRemaining() {
+    final pending = _quotaFuture;
+    if (pending != null) return pending;
+    return _quotaFuture = _doRefreshRemaining().whenComplete(() {
+      _quotaFuture = null;
+    });
+  }
+
+  static Future<int?> _doRefreshRemaining() async {
+    final server = Pref.highQualityPlaybackServer.trim();
+    final account = Accounts.video;
+    if (server.isEmpty || !account.isLogin || !isValidServer(server)) {
+      return null;
+    }
+    try {
+      final cookie = _currentCookie(account);
+      final mid = Pref.userInfoCache?.mid ?? midFromCookie(cookie);
+      final res = await _client.post<dynamic>(
+        quotaEndpoint(server),
+        data: {
+          'ui': {'mid': '$mid', 'cookie': cookie},
+        },
+      );
+      final body = res.data is String
+          ? jsonDecode(res.data as String)
+          : res.data;
+      if (body is Map && body['code'] == 0 && body['today'] is num) {
+        final left = 100 - (body['today'] as num).toInt();
+        remaining.value = left < 0 ? 0 : (left > 100 ? 100 : left);
+        _quotaMid = mid;
+        return remaining.value;
+      }
+    } catch (_) {
+      // 次数查询失败不影响播放，保留上次值
+    }
+    return null;
   }
 
   /// 调试用请求体：cookie / csrf / 余额全部打码，mid 只保留尾 2 位。
