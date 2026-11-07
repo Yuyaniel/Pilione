@@ -1157,12 +1157,56 @@ class VideoDetailController extends GetxController
   /// 前置的可用性/冷却检查和菜单关闭（Get.back）由各调用方自行处理。
   Future<void> unlockQualityWithFeedback(int quality) async {
     final desc = VideoQuality.fromCode(quality).desc;
-    SmartDialog.showLoading(msg: '正在解锁 $desc…');
+    // 贴顶、无遮罩、可穿透：解锁期间画面照常播放，也不拦手势。
+    // displayTime 只是兜底，正常路径由下面的 dismiss 关闭。
+    SmartDialog.showLoading(
+      usePenetrate: true,
+      maskColor: Colors.transparent,
+      alignment: Alignment.topCenter,
+      displayTime: const Duration(seconds: 12),
+      builder: (context) => _buildUnlockPill(context, '正在解锁 $desc…'),
+    );
     final error = await unlockQuality(quality).catchError(
       (Object e) => '解锁异常：$e',
     );
-    SmartDialog.dismiss();
+    // 必须指定 loading：默认的 smart 会先关掉最顶层弹窗（可能是别的 toast）
+    await SmartDialog.dismiss(status: SmartStatus.loading);
     SmartDialog.showToast(error ?? '已解锁并切换到 $desc');
+  }
+
+  /// 解锁提示的轻量 pill：贴在顶部、透明底、不拦手势，只提示「正在解锁」
+  Widget _buildUnlockPill(BuildContext context, String msg) {
+    final colorScheme = ColorScheme.of(context);
+    return Container(
+      margin: EdgeInsets.only(
+        top: MediaQuery.paddingOf(context).top + 8,
+        left: 16,
+        right: 16,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.92),
+        borderRadius: const BorderRadius.all(Radius.circular(20)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: 8,
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(colorScheme.primary),
+            ),
+          ),
+          Text(
+            msg,
+            style: TextStyle(color: colorScheme.onSurface, fontSize: 13),
+          ),
+        ],
+      ),
+    );
   }
 
   Volume? volume;
