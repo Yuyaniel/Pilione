@@ -24,6 +24,8 @@ class FullScreenScSize extends StatefulWidget {
 
 class _FullScreenScSizeState extends State<FullScreenScSize> {
   double _width = Pref.fullScreenSCWidth;
+  double _opacity = Pref.fullScreenSCOpacity;
+  double _scale = Pref.fullScreenSCScale;
   final _randomSC = SuperChatItem.random;
   late EdgeInsets _padding;
   late ColorScheme _colorScheme;
@@ -64,7 +66,13 @@ class _FullScreenScSizeState extends State<FullScreenScSize> {
 
   void _onReset() {
     _width = kFullScreenSCWidth;
-    GStorage.setting.delete(SettingBoxKey.fullScreenSCWidth);
+    _opacity = 1.0;
+    _scale = 1.0;
+    GStorage.setting.deleteAll({
+      SettingBoxKey.fullScreenSCWidth,
+      SettingBoxKey.fullScreenSCOpacity,
+      SettingBoxKey.fullScreenSCScale,
+    });
     setState(() {});
   }
 
@@ -72,12 +80,70 @@ class _FullScreenScSizeState extends State<FullScreenScSize> {
   Widget build(BuildContext context) {
     return SimpleScaffold(
       appBar: AppBar(
-        title: const Text('全屏 SC 大小设置'),
+        title: const Text('全屏 SuperChat 设置'),
         actions: [
           TextButton(onPressed: _onReset, child: const Text('重置')),
         ],
       ),
-      body: Padding(padding: _padding, child: _buildBody),
+      body: Column(
+        children: [
+          Expanded(child: Padding(padding: _padding, child: _buildBody)),
+          _sliders,
+        ],
+      ),
+    );
+  }
+
+  Widget get _sliders {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(25, 0, 25, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text('不透明度: ${_opacity.toStringAsFixed(2)}'),
+              ),
+              Expanded(
+                flex: 7,
+                child: Slider(
+                  min: 0.1,
+                  max: 1.0,
+                  value: _opacity,
+                  onChanged: (value) => setState(() => _opacity = value),
+                  onChangeEnd: (value) => GStorage.setting.put(
+                    SettingBoxKey.fullScreenSCOpacity,
+                    value,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text('缩放: ${_scale.toStringAsFixed(2)}'),
+              ),
+              Expanded(
+                flex: 7,
+                child: Slider(
+                  min: 0.1,
+                  max: 1.0,
+                  value: _scale,
+                  onChanged: (value) => setState(() => _scale = value),
+                  onChangeEnd: (value) => GStorage.setting.put(
+                    SettingBoxKey.fullScreenSCScale,
+                    value,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -90,9 +156,16 @@ class _FullScreenScSizeState extends State<FullScreenScSize> {
           SizedBox(
             width: _width,
             child: IgnorePointer(
-              child: SuperChatCard(
-                item: _randomSC,
-                persistentSC: true,
+              child: Opacity(
+                opacity: _opacity,
+                child: Transform.scale(
+                  scale: _scale,
+                  alignment: .bottomLeft,
+                  child: SuperChatCard(
+                    item: _randomSC,
+                    persistentSC: true,
+                  ),
+                ),
               ),
             ),
           ),

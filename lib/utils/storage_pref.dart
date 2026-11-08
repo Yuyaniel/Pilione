@@ -1619,6 +1619,16 @@ abstract final class Pref {
     defaultValue: kFullScreenSCWidth,
   );
 
+  static double get fullScreenSCOpacity => _setting.get(
+    SettingBoxKey.fullScreenSCOpacity,
+    defaultValue: 1.0,
+  );
+
+  static double get fullScreenSCScale => _setting.get(
+    SettingBoxKey.fullScreenSCScale,
+    defaultValue: 1.0,
+  );
+
   static bool get minimizeOnExit =>
       _setting.get(SettingBoxKey.minimizeOnExit, defaultValue: true);
 

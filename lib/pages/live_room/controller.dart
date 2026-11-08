@@ -135,6 +135,8 @@ class LiveRoomController extends GetxController {
   final messages = <dynamic>[].obs;
   bool get shouldRefresh => builtLength != messages.length;
   late final fsSC = Rxn<SuperChatItem>();
+  late final fsSCOpacity = Pref.fullScreenSCOpacity;
+  late final fsSCScale = Pref.fullScreenSCScale;
   late final RxList<SuperChatItem> superChatMsg = <SuperChatItem>[].obs;
   final disableAutoScroll = false.obs;
   bool autoScroll = true;

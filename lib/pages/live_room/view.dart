@@ -565,7 +565,7 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                 return const SizedBox.shrink();
               }
               try {
-                return ExtraHitTestStack(
+                Widget child = ExtraHitTestStack(
                   key: ValueKey(item.id),
                   clipBehavior: Clip.none,
                   children: [
@@ -588,6 +588,20 @@ class _LiveRoomPageState extends State<LiveRoomPage>
                     ),
                   ],
                 );
+                if (_liveRoomController.fsSCOpacity != 1.0) {
+                  child = Opacity(
+                    opacity: _liveRoomController.fsSCOpacity,
+                    child: child,
+                  );
+                }
+                if (_liveRoomController.fsSCScale != 1.0) {
+                  child = Transform.scale(
+                    alignment: .bottomLeft,
+                    scale: _liveRoomController.fsSCScale,
+                    child: child,
+                  );
+                }
+                return child;
               } catch (_) {
                 if (kDebugMode) rethrow;
                 return const SizedBox.shrink();

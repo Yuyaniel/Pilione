@@ -42,6 +42,8 @@ abstract final class SettingBoxKey {
       superChatType = 'superChatType',
       superChatTimeType = 'superChatTimeType',
       fullScreenSCWidth = 'fullScreenSCWidth',
+      fullScreenSCOpacity = 'fullScreenSCOpacity',
+      fullScreenSCScale = 'fullScreenSCScale',
       keyboardControl = 'keyboardControl',
       pauseOnMinimize = 'pauseOnMinimize',
       pgcSkipType = 'pgcSkipType',
