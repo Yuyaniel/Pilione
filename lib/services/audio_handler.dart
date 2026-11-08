@@ -547,26 +547,4 @@ const _dm = MediaControl(
   customAction: CustomMediaAction(name: 'ACTION_DM'),
 );
 
-const _play = MediaControl(
-  androidIcon: 'drawable/ic_player_play',
-  label: 'Play',
-  action: .play,
-);
 
-const _pause = MediaControl(
-  androidIcon: 'drawable/ic_player_pause',
-  label: 'Pause',
-  action: .pause,
-);
-
-const _rewind = MediaControl(
-  androidIcon: 'drawable/ic_player_rewind_10s',
-  label: 'Rewind',
-  action: .rewind,
-);
-
-const _fastForward = MediaControl(
-  androidIcon: 'drawable/ic_player_fast_forward_10s',
-  label: 'Fast Forward',
-  action: .fastForward,
-);
