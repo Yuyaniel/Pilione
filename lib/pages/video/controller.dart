@@ -1259,12 +1259,12 @@ class VideoDetailController extends GetxController
         : localVideos.map((e) => e.id).reduce(max);
     final expectedQa = localTop < cap ? localTop : cap;
     final targetDesc = VideoQuality.fromCode(expectedQa).desc;
-    // 与手动解锁一致的三段提示：正在解锁 → 已切换 → 剩余次数
+    // 解锁期间显示「正在解锁」，完成或失败由 finally 关闭；
+    // 不再单独提示「已解锁并切换到 X」，实际档位以画质菜单为准
     await _showUnlockTip(
       '正在解锁 $targetDesc…',
       displayTime: const Duration(seconds: 30),
     );
-    var switchedQa = 0;
     try {
       final remote = await HighQualityPlayback.request(
         bvid: bvid,
@@ -1297,14 +1297,10 @@ class VideoDetailController extends GetxController
       if (!await _switchQualitySilently(qa, generation)) {
         return;
       }
-      switchedQa = qa;
     } finally {
       await SmartDialog.dismiss(tag: _quotaTag);
     }
 
-    await _showUnlockTip(
-      '已解锁并切换到 ${VideoQuality.fromCode(switchedQa).desc}',
-    );
     // 后台切换同样消耗一次解析，刷新设置页显示的剩余次数
     final remaining = await HighQualityPlayback.refreshRemaining().timeout(
       const Duration(seconds: 3),
@@ -1523,7 +1519,7 @@ class VideoDetailController extends GetxController
     videoUrl = CdnPicker.pick(firstVideo.playUrls);
   }
 
-  /// 解锁高画质的统一 UI 出口：loading → [unlockQuality] → 结果 + 剩余次数提示。
+  /// 解锁高画质的统一 UI 出口：loading → [unlockQuality] → 剩余解析次数提示。
   /// 画质菜单（header_control / pl_player）共用，避免交互逻辑双份漂移。
   /// 前置的可用性/冷却检查和菜单关闭（Get.back）由各调用方自行处理。
   Future<void> unlockQualityWithFeedback(int quality) async {
@@ -1574,20 +1570,12 @@ class VideoDetailController extends GetxController
         return;
       }
 
-      // 此时切源已完成：先确认切换结果，次数查询回来就接替
-      final quota = HighQualityPlayback.refreshRemaining().timeout(
+      // 切源已完成：loading 直接接替为剩余次数提示，
+      // 不再显示「已解锁并切换到 X」，实际档位以画质菜单为准
+      final remaining = await HighQualityPlayback.refreshRemaining().timeout(
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
-      // 成功提示用真正切到的档位，远端可能给出比本地预估更高的画质
-      final actualDesc = VideoQuality.fromCode(
-        currentVideoQa.value?.code ?? expectedQa,
-      ).desc;
-      await _showUnlockTip('已解锁并切换到 $actualDesc');
-
-      final remaining = await quota;
-      // 保证成功提示至少可读 800ms
-      await Future<void>.delayed(const Duration(milliseconds: 800));
       if (isClosed) return;
       await _showUnlockTip(
         remaining == null
