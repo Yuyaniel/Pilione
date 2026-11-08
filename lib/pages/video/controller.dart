@@ -17,7 +17,6 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/utils/cdn_picker.dart';
-import 'package:PiliPlus/utils/hq_trace.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/http/video.dart';
@@ -1170,9 +1169,6 @@ class VideoDetailController extends GetxController
 
   /// 起播后登记一次自动切换资格；真正的触发在进入全屏时（事件驱动）。
   void _scheduleBackgroundHighQuality() {
-    hqLog('schedule', 'cid=${cid.value} '
-        'startup=${Pref.highQualityPlaybackOnStartup} '
-        'configured=${HighQualityPlayback.configured}');
     if (!isUgc || isFileSource) return;
     if (!Pref.highQualityPlaybackOnStartup) return;
     if (!HighQualityPlayback.configured) return;
@@ -1187,7 +1183,6 @@ class VideoDetailController extends GetxController
 
   /// 进入全屏：开始观察缓冲，满足「缓冲 ≥5s 且不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
-    hqLog('arm', 'enter cid=${cid.value} fs=${plPlayerController.isFullScreen.value}');
     // 手动解锁 / 后台切源进行中，别叠加第二次重开
     if (_unlocking || _bgQaSwitching) return;
     final pendingCid = _bgQaPendingCid;
@@ -1249,9 +1244,6 @@ class VideoDetailController extends GetxController
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {
-    final startedAt = DateTime.now();
-    hqLog('bg', 'start gen=$generation cid=${cid.value} '
-        'curQa=${currentVideoQa.value?.code} cap=${Pref.highQualityPlaybackQuality}');
     // 全屏默认画质等路径已经达到目标，不再浪费一次解析
     if ((currentVideoQa.value?.code ?? 0) >= Pref.highQualityPlaybackQuality) {
       return;
@@ -1281,10 +1273,8 @@ class VideoDetailController extends GetxController
       );
       // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
       if (remote == null) {
-        hqLog('bg', 'remote null elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
         return;
       }
-      hqLog('bg', 'remote ok elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       if (generation != _bgQaGeneration ||
           isClosed ||
           !identical(current, data) ||
@@ -1302,16 +1292,12 @@ class VideoDetailController extends GetxController
       final top = videos.map((e) => e.id).reduce(max);
       final target = Pref.highQualityPlaybackQuality;
       final qa = target <= top ? target : top;
-      hqLog('bg', 'top=$top target=$target qa=$qa');
       if (qa <= (currentVideoQa.value?.code ?? 0)) return;
 
       if (!await _switchQualitySilently(qa, generation)) {
-        hqLog('bg', 'switch failed/cancelled');
         return;
       }
       switchedQa = qa;
-      hqLog('bg', 'switch done qa=$qa '
-          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
     } finally {
       await SmartDialog.dismiss(tag: _quotaTag);
     }
@@ -1345,8 +1331,6 @@ class VideoDetailController extends GetxController
     final oldDefaultST = defaultST;
     final oldAutoPlay = _autoPlay.value;
 
-    final startedAt = DateTime.now();
-    hqLog('switch', 'start qa=$quality gen=$generation pos=${oldPosition.inMilliseconds}');
     _bgQaSwitching = true;
     ctrl.suppressBufferingIndicator.value = true;
     var cancelled = false;
@@ -1371,12 +1355,8 @@ class VideoDetailController extends GetxController
         ).timeout(const Duration(seconds: 15));
         ok = ctrl.dataStatus.value != DataStatus.error;
         seamless = ok;
-        hqLog('switch', 'swap returned ok=$ok seamless=$seamless '
-            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       } catch (_) {
         ok = false;
-        hqLog('switch', 'swap threw '
-            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       }
 
       // 期间被手动改画质 / 切集 / 关闭页面接管：交给新操作，既不加 seek 也不回退，

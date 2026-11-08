@@ -9,7 +9,6 @@ import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/constants.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/video.dart';
-import 'package:PiliPlus/utils/hq_trace.dart';
 import 'package:PiliPlus/models/common/account_type.dart';
 import 'package:PiliPlus/models/common/audio_normalization.dart';
 import 'package:PiliPlus/models/common/dm_chart_source.dart';
@@ -1347,8 +1346,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     // 预读窗口内页面是否被切集 / 改画质 / 关闭接管
     bool Function()? isCancelled,
   }) async {
-    final startedAt = DateTime.now();
-    hqLog('swap', 'enter prefetch=$prefetch play=$play seekTo=$seekTo');
     final player = _videoPlayerController;
     if (player == null || _playerCount == 0) return;
     this.dataSource = dataSource;
@@ -1388,7 +1385,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       try {
         final beforeLength = player.state.playlist.medias.length;
         final beforeIndex = player.state.playlist.index;
-        hqLog('swap', 'prefetch start len=$beforeLength idx=$beforeIndex');
         player.setProperty('prefetch-playlist', 'yes');
         await player.add(buildMedia(seekTo));
         // 等 media_kit 把播放列表同步过来
@@ -1396,12 +1392,9 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           if (player.state.playlist.medias.length > beforeLength) break;
           await Future<void>.delayed(const Duration(milliseconds: 50));
         }
-        hqLog('swap', 'playlist synced len=${player.state.playlist.medias.length}');
         if (player.state.playlist.medias.length > beforeLength) {
           // 预读期间旧流仍在播，用户无感
           await Future<void>.delayed(_prefetchWait);
-          hqLog('swap', 'prefetch waited ${_prefetchWait.inMilliseconds}ms '
-              'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
           // 预读窗口内若切集 / 改画质 / 关页，丢弃追加项，
           // 否则 player.next() 会把新一集切到上一集预读的那条流
           if (!identical(_videoPlayerController, player) ||
@@ -1426,8 +1419,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             await Future<void>.delayed(const Duration(milliseconds: 50));
           }
           if (player.state.playlist.index > beforeIndex) {
-            hqLog('swap', 'next OK seamless idx=${player.state.playlist.index} '
-                'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
             final speed = isLive ? 1.0 : playbackSpeed;
             if (player.state.rate != speed) {
               await setPlaybackSpeed(speed);
@@ -1447,8 +1438,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       }
     }
 
-    hqLog('swap', 'FALLBACK open (blackout expected) '
-        'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
     final shouldPlay = play ?? playerStatus.isPlaying;
     await player.open(buildMedia(seekTo), play: false);
     final speed = isLive ? 1.0 : playbackSpeed;
@@ -1459,7 +1448,6 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       await player.play();
     }
     await _alignAfterSwap(player, seekTo);
-    hqLog('swap', 'done fallback elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
   }
 
   Future<void>? refreshPlayer() {

@@ -29,7 +29,6 @@ import 'package:PiliPlus/models_new/video/video_play_info/data.dart';
 import 'package:PiliPlus/models_new/video/video_relation/data.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/utils/high_quality_playback.dart';
-import 'package:PiliPlus/utils/hq_trace.dart';
 import 'package:PiliPlus/utils/play_url_cache.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/app_sign.dart';
@@ -267,9 +266,6 @@ abstract final class VideoHttp {
     bool voiceBalance = false,
     bool fallback = false,
   }) async {
-    final enterAt = DateTime.now();
-    hqLog('videoUrl', 'enter cid=$cid qn=$qn type=${videoType.name} '
-        'ep=$epid season=$seasonId fallback=$fallback tryLook=$tryLook');
     // 起播加速：playurl 短时缓存，命中就直接复用（一次消费）
     final cacheKey = Pref.enablePlayUrlCache
         ? PlayUrlCache.key(
@@ -289,7 +285,6 @@ abstract final class VideoHttp {
     if (cacheKey != null) {
       final cached = PlayUrlCache.take(cacheKey);
       if (cached != null) {
-        hqLog('videoUrl', 'cache hit cid=$cid ${DateTime.now().difference(enterAt).inMilliseconds}ms');
         return Success(cached);
       }
     }
@@ -353,8 +348,6 @@ abstract final class VideoHttp {
       );
 
       if (res.data['code'] == 0) {
-        hqLog('videoUrl', 'official ok cid=$cid type=${videoType.name} '
-            '${DateTime.now().difference(enterAt).inMilliseconds}ms');
         // 番剧：官方 playview 成功后，再用第三方服务替换为可播流。
         // 脚本原逻辑是「官方成功才调 bzview3」，并带上 iic（是否区域限制）。
         if (videoType == .pgc &&
@@ -372,11 +365,9 @@ abstract final class VideoHttp {
             iic: res.data.toString().contains('AreaLimitPanel'),
           );
           if (remote != null) {
-            hqLog('videoUrl', 'pgc remote ok cid=$cid');
             if (cacheKey != null) PlayUrlCache.put(cacheKey, remote);
             return Success(remote);
           }
-          hqLog('videoUrl', 'pgc remote null cid=$cid');
         }
         late PlayUrlModel data;
         switch (videoType) {
@@ -430,9 +421,6 @@ abstract final class VideoHttp {
               ..lastPlayTime =
                   result['play_view_business_info']?['user_status']?['watch_progress']?['current_watch_progress'];
         }
-        hqLog('videoUrl', 'official return cid=$cid q=${data.quality} '
-            'dash=${data.dash?.video?.length ?? 0} durl=${data.durl?.length ?? 0} '
-            '${DateTime.now().difference(enterAt).inMilliseconds}ms');
         // 官方 PGC 结果可能是 3/6 分钟试看片段，不写缓存；只缓存 UGC
         if (cacheKey != null && videoType == .ugc) {
           PlayUrlCache.put(cacheKey, data);
