@@ -1308,12 +1308,21 @@ class VideoDetailController extends GetxController
       _prepareQualitySource(quality);
       playedTime = oldPosition;
 
-      bool ok;
+      bool ok = false;
+      // 无缝换流成功时位置已由 swapSource 精确对齐，跳过下面的 drift 补偿
+      var seamless = false;
       try {
-        await playerInit(
-          autoplay: wasPlaying,
+        await ctrl.swapSource(
+          NetworkSource(
+            videoSource: videoUrl!,
+            audioSource: audioUrl,
+          ),
+          seekTo: oldPosition,
+          play: wasPlaying,
+          prefetch: true,
         ).timeout(const Duration(seconds: 15));
         ok = ctrl.dataStatus.value != DataStatus.error;
+        seamless = ok;
       } catch (_) {
         ok = false;
       }
@@ -1328,7 +1337,7 @@ class VideoDetailController extends GetxController
         // 切换期间用户拖过进度：以用户给出的位置为准
         final drift =
             (ctrl.positionInMilliseconds - oldPosition.inMilliseconds).abs();
-        if (drift > 3000) {
+        if (!seamless && drift > 3000) {
           // seek 重构后不再等待 duration：切源刚完成时 duration 可能为 0，
           // 直接 seek 会无效并回到 0 秒，这里等到 duration 就绪再试。
           if (ctrl.duration.value == 0) {

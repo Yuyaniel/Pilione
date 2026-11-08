@@ -1302,6 +1302,140 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     applyVideoPictureParameters(player);
   }
 
+  /// 换流后把进度对齐到 [seekTo]。
+  ///
+  /// 播放列表预读是在后台提前打开新流的，切换后仍可能停在预读时记下的
+  /// 旧位置；[force] 为 true 时直接补一次精确 seek。
+  Future<void> _alignAfterSwap(
+    NativePlayer player,
+    Duration? seekTo, {
+    bool force = false,
+  }) async {
+    if (seekTo == null || seekTo <= Duration.zero) return;
+    if (force) {
+      if (!identical(_videoPlayerController, player)) return;
+      await player.seek(seekTo);
+      return;
+    }
+    for (var i = 0; i < 14; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (!identical(_videoPlayerController, player)) return;
+      final pos = player.state.position;
+      if (pos <= Duration.zero) continue;
+      if ((pos - seekTo).inMilliseconds.abs() <= 500) return;
+      await player.seek(seekTo);
+      return;
+    }
+  }
+
+  /// 原地换流：复用同一个 mpv 实例与视频纹理，不重建 Player、不重置 UI 状态。
+  ///
+  /// [prefetch] 为 true 时先把新流追加到播放列表让 mpv 后台预读
+  /// （旧流继续播，用户无感），再 `playlist-next` 切过去；
+  /// 没切成会自动退回直接 open。
+  Future<void> swapSource(
+    DataSource dataSource, {
+    Duration? seekTo,
+    bool? play,
+    bool prefetch = false,
+  }) async {
+    final player = _videoPlayerController;
+    if (player == null || _playerCount == 0) return;
+    this.dataSource = dataSource;
+
+    Media buildMedia(Duration? start) {
+      final Map<String, String> extras = {
+        if (dataSource is FileSource)
+          'cache': 'no'
+        else if (isLive)
+          ...liveBuffer
+        else
+          ...buffer,
+      };
+      String video = dataSource.videoSource;
+      if (dataSource.audioSource case final audio? when (audio.isNotEmpty)) {
+        if (onlyPlayAudio.value) {
+          video = audio;
+        } else {
+          // dely_open need provide length
+          video =
+              ('edl://'
+              '!no_chapters;'
+              '%${isFileSource ? utf8.encode(video).length : video.length}%$video;'
+              '!new_stream;!no_chapters;'
+              '%${isFileSource ? utf8.encode(audio).length : audio.length}%$audio');
+        }
+        audioFilterExtras(null, map: extras);
+      }
+      return Media(
+        video,
+        start: start,
+        extras: extras.isEmpty ? null : extras,
+      );
+    }
+
+    if (prefetch) {
+      try {
+        final beforeLength = player.state.playlist.medias.length;
+        final beforeIndex = player.state.playlist.index;
+        player.setProperty('prefetch-playlist', 'yes');
+        await player.add(buildMedia(seekTo));
+        // 等 media_kit 把播放列表同步过来
+        for (var i = 0; i < 10; i++) {
+          if (player.state.playlist.medias.length > beforeLength) break;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        if (player.state.playlist.medias.length > beforeLength) {
+          // 预读期间旧流仍在播，用户无感
+          await Future<void>.delayed(const Duration(milliseconds: 1200));
+          if (!identical(_videoPlayerController, player)) return;
+          // 这 1.2s 里旧流还在往前走，切换点必须取现在的位置，
+          // 否则换完会倒回去一小段
+          final live = isLive ? null : player.state.position;
+          final isJump =
+              seekTo != null &&
+              live != null &&
+              (live - seekTo).inMilliseconds.abs() > 3000;
+          final resumeAt = isLive
+              ? null
+              : (isJump ? seekTo : (live ?? seekTo));
+          await player.next();
+          for (var i = 0; i < 30; i++) {
+            if (player.state.playlist.index > beforeIndex) break;
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+          if (player.state.playlist.index > beforeIndex) {
+            final speed = isLive ? 1.0 : playbackSpeed;
+            if (player.state.rate != speed) {
+              await setPlaybackSpeed(speed);
+            }
+            if (play ?? playerStatus.isPlaying) {
+              await player.play();
+            }
+            await _alignAfterSwap(player, resumeAt, force: true);
+            return;
+          }
+          // 没切过去：删掉追加项，避免播完自动跳进这一条
+          final last = player.state.playlist.medias.length - 1;
+          if (last > 0) await player.remove(last);
+        }
+      } catch (_) {
+        // 预读失败就落到下面的直接 open
+      }
+    }
+
+    final shouldPlay = play ?? playerStatus.isPlaying;
+    await player.open(buildMedia(seekTo), play: false);
+    final speed = isLive ? 1.0 : playbackSpeed;
+    if (player.state.rate != speed) {
+      await setPlaybackSpeed(speed);
+    }
+    if (shouldPlay) {
+      await player.play();
+    }
+    await _alignAfterSwap(player, seekTo);
+  }
+
   Future<void>? refreshPlayer() {
     if (dataSource is FileSource) {
       return null;
