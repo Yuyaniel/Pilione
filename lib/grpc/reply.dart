@@ -158,12 +158,12 @@ abstract final class ReplyGrpc {
         oid: Int64(oid),
         type: Int64(type),
         rpid: rpid,
-        cursor: CursorReq(
-          mode: mode,
-          next: cursorNext,
-        ),
-        // mode: mode,
-        // pagination: offset == null ? null : FeedPagination(offset: offset),
+        // cursor: CursorReq(
+        //   mode: mode,
+        //   next: cursorNext,
+        // ),
+        mode: mode,
+        pagination: offset == null ? null : FeedPagination(offset: offset),
       ),
       MainListReply.fromBuffer,
     );
