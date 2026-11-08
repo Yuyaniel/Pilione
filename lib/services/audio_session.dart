@@ -10,6 +10,13 @@ class AudioSessionHandler {
     return _session.setActive(active);
   }
 
+  /// 切换「与其他应用同时播放」后重新配置音频会话
+  Future<void> reconfigure() async {
+    await _session.setActive(false);
+    await _session.configure(const AudioSessionConfiguration.music());
+    await _session.setActive(true);
+  }
+
   AudioSessionHandler() {
     initSession();
   }
