@@ -505,6 +505,10 @@ abstract final class HighQualityPlayback {
         return null;
       }
 
+      // 与开发者脚本一致：去掉 need_login / need_vip，
+      // 避免播放器仍按未登录/未付费处理
+      _stripGates(data);
+
       // OGV playview 的流在 data.video_info；兼容部分实现直接返回 dash/durl
       final source = data['video_info'] is Map
           ? data['video_info'] as Map
@@ -627,6 +631,17 @@ abstract final class HighQualityPlayback {
     return trimmed.endsWith('/')
         ? '${trimmed}api/bzusta'
         : '$trimmed/api/bzusta';
+  }
+
+  /// 去掉 playview 响应里的 need_login / need_vip 标记。
+  /// 开发者脚本用字符串替换实现，这里在解析后的 Map 上做同样的事。
+  static void _stripGates(Map data) {
+    data.remove('need_login');
+    data.remove('need_vip');
+    if (data['video_info'] case final Map info) {
+      info.remove('need_login');
+      info.remove('need_vip');
+    }
   }
 
   /// 当前视频账号的 cookie 串
