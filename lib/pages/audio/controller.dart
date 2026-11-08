@@ -221,25 +221,25 @@ class AudioController extends GetxController
     return player?.state.playing ?? false;
   }
 
-  Future<void>? onPlay() async {
-    if (player == null) return;
-    await player?.play();
+  Future<void> onPlay() async {
+    final p = player;
+    if (p == null) return;
+    // 先申请音频焦点再播放，避免起播瞬间被系统压掉音量
     await audioSessionHandler?.setActive(true);
+    await p.play();
   }
 
-  Future<void>? onPause() async {
-    if (player == null) return;
-    await player?.pause();
+  Future<void> onPause() async {
+    final p = player;
+    if (p == null) return;
+    await p.pause();
     await audioSessionHandler?.setActive(false);
   }
 
-  Future<void>? playOrPause() {
-    if (player == null) return null;
-    if (player!.state.playing) {
-      return onPause();
-    } else {
-      return onPlay();
-    }
+  Future<void> playOrPause() {
+    final p = player;
+    if (p == null) return Future.value();
+    return p.state.playing ? onPause() : onPlay();
   }
 
   Future<void>? onSeek(Duration duration) {

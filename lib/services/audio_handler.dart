@@ -228,17 +228,20 @@ class VideoPlayerServiceHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) {
+    // 直播未就绪时 playOwner 为 null，直接忽略而不是抛 Null check operator
+    final tag = PlPlayerController.playOwner?.tag;
+    if (tag == null) return Future.syncValue(null);
     try {
       switch (name) {
         case 'ACTION_DM':
-          final tag = PlPlayerController.playOwner!.tag;
           Get.find<LiveRoomController>(tag: tag).toggleDanmaku();
         case 'ACTION_REFRESH':
-          final tag = PlPlayerController.playOwner!.tag;
           Get.find<LiveRoomController>(tag: tag).queryLiveUrl();
         default:
       }
-    } catch (_) {}
+    } catch (e) {
+      logger.w('live customAction $name failed: $e');
+    }
     return Future.syncValue(null);
   }
 
