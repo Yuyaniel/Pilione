@@ -1295,6 +1295,10 @@ abstract final class Pref {
   static bool get pgcPlayback =>
       _setting.get(SettingBoxKey.pgcPlayback, defaultValue: false);
 
+  /// 起播加速：playurl 短时缓存
+  static bool get enablePlayUrlCache =>
+      _setting.get(SettingBoxKey.enablePlayUrlCache, defaultValue: true);
+
   static bool get autoLikeOnProgress =>
       _setting.get(SettingBoxKey.autoLikeOnProgress, defaultValue: false);
 

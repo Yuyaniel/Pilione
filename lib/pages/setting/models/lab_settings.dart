@@ -32,6 +32,14 @@ List<SettingsModel> get labSettings => [
     defaultVal: false,
   ),
   const SwitchModel(
+    title: '起播加速：playurl 短时缓存',
+    subtitle: '默认开启：同一个视频（同 cid / 画质 / 语言）5 分钟内再次取流直接复用上次结果，'
+        '省掉一次 playurl 往返；每次命中只消费一次，不会把旧地址给到别的页面',
+    leading: Icon(Icons.cached_outlined),
+    setKey: SettingBoxKey.enablePlayUrlCache,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '起播后自动切换高画质',
     subtitle: '先用官方通道快速起播，缓冲充足后后台解析并静默切换，切换瞬间画面会短暂停顿；失败自动保留原画质',
     leading: Icon(Icons.bolt_outlined),

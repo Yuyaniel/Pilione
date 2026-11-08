@@ -29,6 +29,7 @@ import 'package:PiliPlus/models_new/video/video_play_info/data.dart';
 import 'package:PiliPlus/models_new/video/video_relation/data.dart';
 import 'package:PiliPlus/models_new/video/video_shot/data.dart';
 import 'package:PiliPlus/utils/high_quality_playback.dart';
+import 'package:PiliPlus/utils/play_url_cache.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/app_sign.dart';
 import 'package:PiliPlus/utils/extension/string_ext.dart';
@@ -265,6 +266,27 @@ abstract final class VideoHttp {
     bool voiceBalance = false,
     bool fallback = false,
   }) async {
+    // 起播加速：playurl 短时缓存，命中就直接复用（一次消费）
+    final cacheKey = Pref.enablePlayUrlCache
+        ? PlayUrlCache.key(
+            cid: cid,
+            avid: avid,
+            bvid: bvid,
+            epid: epid,
+            seasonId: seasonId,
+            qn: qn,
+            language: language,
+            tryLook: tryLook,
+            videoType: videoType.name,
+            voiceBalance: voiceBalance,
+            fallback: fallback,
+          )
+        : null;
+    if (cacheKey != null) {
+      final cached = PlayUrlCache.take(cacheKey);
+      if (cached != null) return Success(cached);
+    }
+
     final dmImgStr = Utils.base64EncodeRandomString(16, 64);
     final dmCoverImgStr = Utils.base64EncodeRandomString(32, 128);
     final params = await WbiSign.makSign({
@@ -312,6 +334,7 @@ abstract final class VideoHttp {
         localDurationMs: duration,
       );
       if (remote != null) {
+        if (cacheKey != null) PlayUrlCache.put(cacheKey, remote);
         return Success(remote);
       }
     }
@@ -339,7 +362,10 @@ abstract final class VideoHttp {
             qn: qn,
             iic: res.data.toString().contains('AreaLimitPanel'),
           );
-          if (remote != null) return Success(remote);
+          if (remote != null) {
+            if (cacheKey != null) PlayUrlCache.put(cacheKey, remote);
+            return Success(remote);
+          }
         }
         late PlayUrlModel data;
         switch (videoType) {
@@ -392,6 +418,10 @@ abstract final class VideoHttp {
             data = PlayUrlModel.fromJson(result)
               ..lastPlayTime =
                   result['play_view_business_info']?['user_status']?['watch_progress']?['current_watch_progress'];
+        }
+        // 官方 PGC 结果可能是 3/6 分钟试看片段，不写缓存；只缓存 UGC
+        if (cacheKey != null && videoType == .ugc) {
+          PlayUrlCache.put(cacheKey, data);
         }
         return Success(data);
       } else if (epid != null && videoType == .ugc) {
