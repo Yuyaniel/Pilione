@@ -404,6 +404,121 @@ abstract final class HighQualityPlayback {
     }
   }
 
+  /// 番剧/课程解析：服务端代请求 `ogv/player/playview`。
+  ///
+  /// 返回 null 表示远端不可用，调用方应回退官方 [Api.ogvUrl]。
+  /// 只对非 DRM 内容有效；DRM 番剧响应里没有 `video_info`，会返回 null。
+  static Future<PlayUrlModel?> requestPgc({
+    required int epId,
+    required int seasonId,
+    required int cid,
+    int? qn,
+  }) async {
+    if (epId <= 0 || cid <= 0) {
+      lastStatus = '未启用：缺少 ep_id 或 cid';
+      return null;
+    }
+    final server = Pref.highQualityPlaybackServer.trim();
+    final account = Accounts.video;
+    if (server.isEmpty || !account.isLogin) {
+      lastStatus = '未启用：服务地址为空或视频账号未登录';
+      return null;
+    }
+    if (!isValidServer(server)) {
+      lastStatus = '未启用：服务地址必须以 http:// 开头';
+      return null;
+    }
+
+    try {
+      final url = Uri.https('api.bilibili.com', Api.ogvUrl, {
+        'ep_id': '$epId',
+        'season_id': '$seasonId',
+        'cid': '$cid',
+        'qn': '${qn ?? Pref.highQualityPlaybackQuality}',
+      }).toString();
+
+      final userInfo = Pref.userInfoCache;
+      final cookie = _currentCookie(account);
+      final payload = <String, dynamic>{
+        'ui': {
+          'ua': desktopUa,
+          'mid': '${userInfo?.mid ?? midFromCookie(cookie)}',
+          'vip': userInfo?.vipStatus ?? 0,
+          'level': userInfo?.levelInfo?.currentLevel ?? 0,
+          'money': userInfo?.money ?? 0,
+          'cookie': cookie,
+          'csrf': account.csrf,
+        },
+        'url': url,
+      };
+
+      lastRequest = clipDebug(prettyMasked(payload));
+      await _persistRecord(_cacheKeyRequest, lastRequest!);
+
+      final res = await _client.post<dynamic>(
+        endpointPgc(server),
+        data: payload,
+      );
+
+      final raw = res.data is String
+          ? res.data as String
+          : jsonEncode(res.data);
+      lastResponse = clipDebug(raw);
+      await _persistRecord(_cacheKeyResponse, lastResponse!);
+
+      final body = jsonDecode(raw);
+      if (body is! Map) {
+        lastStatus = '失败：响应不是 JSON 对象';
+        _enterCooldown();
+        return null;
+      }
+      if (body['code'] != 0) {
+        lastStatus = '失败：服务端返回 code=${body['code']}'
+            '${body['message'] == null ? '' : '，${body['message']}'}';
+        _enterCooldown();
+        return null;
+      }
+      final data = body['data'];
+      if (data is! Map) {
+        lastStatus = '失败：响应缺少 data';
+        _enterCooldown();
+        return null;
+      }
+
+      // OGV playview 的流在 data.video_info；兼容部分实现直接返回 dash/durl
+      final source = data['video_info'] is Map
+          ? data['video_info'] as Map
+          : data;
+      final playUrl = PlayUrlModel.fromJson(source.cast<String, dynamic>());
+      final hasVideo =
+          playUrl.dash?.video?.isNotEmpty == true ||
+          playUrl.durl?.isNotEmpty == true;
+      if (!hasVideo) {
+        lastStatus = '失败：响应里没有可用视频流（可能是 DRM 或权限不足）';
+        _enterCooldown();
+        return null;
+      }
+
+      trimToQualityCap(playUrl, Pref.highQualityPlaybackQuality);
+      if (playUrl.dash?.video?.isNotEmpty == true) {
+        final codes = playUrl.acceptQuality ?? const <int>[];
+        final highest = codes.isEmpty
+            ? (playUrl.quality ?? 0)
+            : codes.reduce((a, b) => a > b ? a : b);
+        lastStatus = '成功：最高 ${_qualityDesc(highest)}'
+            '${codes.isEmpty ? '' : '，共 ${codes.length} 档'}';
+      } else {
+        lastStatus = '成功：durl 流';
+      }
+      unawaited(refreshRemaining());
+      return playUrl;
+    } catch (e) {
+      lastStatus = '失败：${friendlyError(e)}';
+      _enterCooldown(networkError: _isNetworkError(e));
+      return null;
+    }
+  }
+
   /// 画质菜单点击灰档前的统一前置检查：返回 null 表示可解锁，否则给出提示文案。
   /// header_control 与 pl_player 共用，避免两处判断与文案漂移。
   static String? unlockBlockedReason() {
@@ -456,6 +571,17 @@ abstract final class HighQualityPlayback {
     return trimmed.endsWith('/')
         ? '${trimmed}api/bzview2'
         : '$trimmed/api/bzview2';
+  }
+
+  /// 由已校验的服务地址拼出 bzview3 端点（番剧/课程）。
+  static String endpointPgc(String server) {
+    final trimmed = server.trim();
+    if (!isValidServer(trimmed)) {
+      throw const FormatException('服务地址必须以 http:// 开头');
+    }
+    return trimmed.endsWith('/')
+        ? '${trimmed}api/bzview3'
+        : '$trimmed/api/bzview3';
   }
 
   /// 由已校验的服务地址拼出 bzusta 端点（查询当日已用次数）。

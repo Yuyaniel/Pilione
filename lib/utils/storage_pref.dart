@@ -1291,6 +1291,10 @@ abstract final class Pref {
     defaultValue: false,
   );
 
+  /// 番剧/课程是否也走第三方解析（bzview3），仅对非 DRM 内容有效
+  static bool get pgcPlayback =>
+      _setting.get(SettingBoxKey.pgcPlayback, defaultValue: false);
+
   static bool get autoLikeOnProgress =>
       _setting.get(SettingBoxKey.autoLikeOnProgress, defaultValue: false);
 

@@ -298,6 +298,21 @@ abstract final class VideoHttp {
       'cur_language': ?language,
     });
 
+    // 番剧/课程解析（第三方服务代请求 ogv playview），失败回退官方接口
+    if (videoType == .pgc &&
+        Pref.pgcPlayback &&
+        HighQualityPlayback.configured &&
+        epid != null &&
+        seasonId != null) {
+      final remote = await HighQualityPlayback.requestPgc(
+        epId: epid is int ? epid : int.tryParse('$epid') ?? 0,
+        seasonId: seasonId is int ? seasonId : int.tryParse('$seasonId') ?? 0,
+        cid: cid,
+        qn: qn,
+      );
+      if (remote != null) return Success(remote);
+    }
+
     // 高画质播放（第三方服务代请求），失败时回退到正常请求
     // 起播永远先用官方流：只有用户手动点过「解锁高画质」才在这里走远端。
     // 开源的「起播后自动切换」由 VideoDetailController 在首帧稳定后另行触发，

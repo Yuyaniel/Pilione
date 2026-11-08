@@ -25,6 +25,13 @@ List<SettingsModel> get labSettings => [
     defaultVal: false,
   ),
   const SwitchModel(
+    title: '番剧解析（实验性）',
+    subtitle: '番剧/课程也走第三方服务代请求，仅对非 DRM 内容有效，失败自动回退官方接口',
+    leading: Icon(Icons.movie_filter_outlined),
+    setKey: SettingBoxKey.pgcPlayback,
+    defaultVal: false,
+  ),
+  const SwitchModel(
     title: '起播后自动切换高画质',
     subtitle: '先用官方通道快速起播，缓冲充足后后台解析并静默切换，切换瞬间画面会短暂停顿；失败自动保留原画质',
     leading: Icon(Icons.bolt_outlined),
