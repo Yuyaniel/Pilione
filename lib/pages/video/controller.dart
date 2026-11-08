@@ -16,6 +16,7 @@ import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/utils/cdn_picker.dart';
 import 'package:PiliPlus/utils/hq_trace.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
@@ -951,7 +952,7 @@ class VideoDetailController extends GetxController
       ..buffered.value = 0;
 
     firstVideo = findVideoByQa(currentVideoQa.code, setCodecs: true);
-    videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+    videoUrl = CdnPicker.pick(firstVideo.playUrls);
 
     /// 根据currentAudioQa 重新设置audioUrl
     if (currentAudioQa != null) {
@@ -959,7 +960,7 @@ class VideoDetailController extends GetxController
         (i) => i.id == currentAudioQa!.code,
         orElse: () => data.dash!.audio!.first,
       );
-      audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
+      audioUrl = CdnPicker.pick(firstAudio.playUrls, isAudio: true);
     }
 
     playerInit();
@@ -1147,40 +1148,22 @@ class VideoDetailController extends GetxController
   /// 解锁相关提示共用的 dialog tag（先关旧再开新，避免叠加）
   static const String _quotaTag = 'highQualityQuota';
 
-  /// 起播并行预解析的结果：官方 playurl 与远端解析同时发出，
-  /// 进全屏时结果通常已就绪，直接切流，省掉整段解析等待。
-  /// 每次起播固定消耗一次解析次数（不省次数模式）。
-  Future<PlayUrlModel?>? _prefetchFuture;
-  int? _prefetchCid;
+  /// 已探过速的 cid，同一视频不重复探
+  int? _cdnProbedCid;
 
-  bool get _prefetchReady =>
-      _prefetchFuture != null && _prefetchCid == cid.value;
-
-  void _startPrefetchHighQuality() {
-    _prefetchFuture = null;
-    _prefetchCid = null;
-    if (!isUgc || isFileSource) return;
-    if (!Pref.highQualityPlaybackOnStartup) return;
-    if (!HighQualityPlayback.configured) return;
+  /// 起播几秒后后台测一次候选 CDN 主机的 RTT，结果由 [CdnPicker] 记住。
+  /// 避开起播带宽；只在 B 站下发的候选地址里挑。
+  void _scheduleCdnProbe() {
+    if (!Pref.enableCdnMemory) return;
     final currentCid = cid.value;
-    if (HighQualityPlayback.isUnlocked(currentCid)) return;
-    if ((currentVideoQa.value?.code ?? 0) >= Pref.highQualityPlaybackQuality) {
-      return;
-    }
-    _prefetchCid = currentCid;
-    final startedAt = DateTime.now();
-    hqLog('prefetch', 'start cid=$currentCid bvid=$bvid');
-    _prefetchFuture = HighQualityPlayback.request(
-      bvid: bvid,
-      cid: currentCid,
-      localDurationMs: _knownDuration,
-    );
+    if (_cdnProbedCid == currentCid) return;
+    _cdnProbedCid = currentCid;
+    final urls = firstVideo.playUrls;
+    if (urls.length < 2) return;
     unawaited(
-      _prefetchFuture!.then((remote) {
-        hqLog('prefetch', 'done cid=$currentCid ok=${remote != null} '
-            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
-      }).catchError((Object e) {
-        hqLog('prefetch', 'error $e');
+      Future<void>.delayed(const Duration(seconds: 5), () {
+        if (isClosed || cid.value != currentCid) return;
+        CdnPicker.probe(urls);
       }),
     );
   }
@@ -1254,8 +1237,6 @@ class VideoDetailController extends GetxController
       return false;
     }
     if (ctrl.position.value < 2) return false;
-    // 远端结果已就绪：切流由播放列表预读保证，不必再等旧流缓冲到 5s
-    if (_prefetchReady) return true;
     return ctrl.buffered.value >= 5;
   }
 
@@ -1265,9 +1246,6 @@ class VideoDetailController extends GetxController
     _bgQaProbe?.cancel();
     _bgQaProbe = null;
     _bgQaPendingCid = null;
-    // 切集 / 手动接管：丢弃还没消费的预解析结果，避免把上一集的流换到新一集
-    _prefetchFuture = null;
-    _prefetchCid = null;
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {
@@ -1296,28 +1274,11 @@ class VideoDetailController extends GetxController
     );
     var switchedQa = 0;
     try {
-      final prefetched = _prefetchFuture;
-      final hit = prefetched != null && _prefetchCid == currentCid;
-      hqLog('bg', hit
-          ? 'prefetch HIT cid=$currentCid (skip request)'
-          : 'prefetch MISS cid=$currentCid, request now');
-      final Future<PlayUrlModel?> pending = hit
-          ? prefetched
-          : HighQualityPlayback.request(
-              bvid: bvid,
-              cid: currentCid,
-              localDurationMs: _knownDuration,
-            );
-      var remote = await pending;
-      // 预解析失败时再试一次（不省次数模式）
-      if (remote == null && hit) {
-        hqLog('bg', 'prefetch returned null, retry once');
-        remote = await HighQualityPlayback.request(
-          bvid: bvid,
-          cid: currentCid,
-          localDurationMs: _knownDuration,
-        );
-      }
+      final remote = await HighQualityPlayback.request(
+        bvid: bvid,
+        cid: currentCid,
+        localDurationMs: _knownDuration,
+      );
       // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
       if (remote == null) {
         hqLog('bg', 'remote null elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
@@ -1579,7 +1540,7 @@ class VideoDetailController extends GetxController
       milliseconds: plPlayerController.positionInMilliseconds,
     );
     firstVideo = findVideoByQa(quality, setCodecs: true);
-    videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+    videoUrl = CdnPicker.pick(firstVideo.playUrls);
   }
 
   /// 解锁高画质的统一 UI 出口：loading → [unlockQuality] → 结果 + 剩余次数提示。
@@ -1760,8 +1721,6 @@ class VideoDetailController extends GetxController
     }
     isQuerying = true;
     try {
-    // 起播即并行发远端解析：官方 playurl 与它同时跑
-    _startPrefetchHighQuality();
     if (_lastQueryBvid != bvid || _lastQueryCid != cid.value) {
       // 跨视频/分P时重置画质缓存，确保根据半屏/全屏设置重新选择默认画质。
       // resetTempSettings 在 setDataSource 中执行（HTTP 请求之后），
@@ -1873,7 +1832,7 @@ class VideoDetailController extends GetxController
             }
             videoUrl = sb.toString();
           } else {
-            videoUrl = VideoUtils.getCdnUrl(durl.single.playUrls);
+            videoUrl = CdnPicker.pick(durl.single.playUrls);
           }
 
           audioUrl = '';
@@ -1932,7 +1891,7 @@ class VideoDetailController extends GetxController
       currentDecodeFormats = targetDecode;
       currentVideoQa.value = VideoQuality.fromCode(targetQuality);
       _setVideoHeight();
-      videoUrl = VideoUtils.getCdnUrl(firstVideo.playUrls);
+      videoUrl = CdnPicker.pick(firstVideo.playUrls);
 
       AudioItem? firstAudio;
       final audioList = dash.audio;
@@ -1941,7 +1900,7 @@ class VideoDetailController extends GetxController
           audioList,
           plPlayerController.cacheAudioQa,
         );
-        audioUrl = VideoUtils.getCdnUrl(firstAudio.playUrls, isAudio: true);
+        audioUrl = CdnPicker.pick(firstAudio.playUrls, isAudio: true);
         currentAudioQa = AudioQuality.fromCode(firstAudio.id);
       } else {
         audioUrl = '';
@@ -1950,6 +1909,8 @@ class VideoDetailController extends GetxController
         await initPlayerIfNeeded(autoFullScreenFlag);
         // 首帧稳定后再在后台升画质，不阻塞起播
         _scheduleBackgroundHighQuality();
+        // 起播 5 秒后后台探速，结果供下次取流优先使用
+        _scheduleCdnProbe();
       } else {
         // 从 PiP 返回时，播放器已在运行，但需要重新初始化 SponsorBlock 的跳过监听器
         if (plPlayerController.enableSponsorBlock && segmentList.isNotEmpty) {

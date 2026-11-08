@@ -1329,9 +1329,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
-  /// 播放列表预读等待：给 mpv 后台打开新流的时间。
-  /// 远端结果已提前就绪时可调短；太短会让 next() 之后仍要等网络。
-  static const Duration _prefetchWait = Duration(milliseconds: 600);
+  /// 播放列表预读等待：给 mpv 后台打开并缓冲新流的时间。
+  /// 调短虽能更早切换，但 next() 之后可能还要等网络；调长可保证
+  /// 切换点新流已有缓冲，旧流继续播，用户全程无感。
+  static const Duration _prefetchWait = Duration(milliseconds: 1200);
 
   /// 原地换流：复用同一个 mpv 实例与视频纹理，不重建 Player、不重置 UI 状态。
   ///

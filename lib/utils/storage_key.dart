@@ -31,6 +31,7 @@ abstract final class SettingBoxKey {
       highQualityPlaybackOnStartup = 'highQualityPlaybackOnStartup',
       pgcPlayback = 'pgcPlayback',
       enablePlayUrlCache = 'enablePlayUrlCache',
+      enableCdnMemory = 'enableCdnMemory',
       hideDynamicsTabs = 'hideDynamicsTabs',
       hideDynamicsChargeVideo = 'hideDynamicsChargeVideo',
       dynUpPanelShowGroup = 'dynUpPanelShowGroup',

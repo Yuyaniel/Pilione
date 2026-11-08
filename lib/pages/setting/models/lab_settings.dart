@@ -40,6 +40,14 @@ List<SettingsModel> get labSettings => [
     defaultVal: true,
   ),
   const SwitchModel(
+    title: '起播加速：CDN 择优记忆',
+    subtitle: '默认开启：起播几秒后后台对候选 CDN 主机各测一次延迟，记住最快的那个，'
+        '下次取流（换画质 / 下一集 / 重进）优先用它。只会在 B 站给的候选地址里挑',
+    leading: Icon(Icons.speed_outlined),
+    setKey: SettingBoxKey.enableCdnMemory,
+    defaultVal: true,
+  ),
+  const SwitchModel(
     title: '起播后自动切换高画质',
     subtitle: '先用官方通道快速起播，缓冲充足后后台解析并静默切换，切换瞬间画面会短暂停顿；失败自动保留原画质',
     leading: Icon(Icons.bolt_outlined),

@@ -1299,6 +1299,10 @@ abstract final class Pref {
   static bool get enablePlayUrlCache =>
       _setting.get(SettingBoxKey.enablePlayUrlCache, defaultValue: true);
 
+  /// 起播加速：记住实测最快的 CDN 主机并优先使用
+  static bool get enableCdnMemory =>
+      _setting.get(SettingBoxKey.enableCdnMemory, defaultValue: true);
+
   static bool get autoLikeOnProgress =>
       _setting.get(SettingBoxKey.autoLikeOnProgress, defaultValue: false);
 
