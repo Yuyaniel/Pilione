@@ -430,11 +430,26 @@ abstract final class HighQualityPlayback {
     }
 
     try {
+      // 按浏览器真实请求补全参数：playview 必须带 wbi 签名（w_rid/wts），
+      // 否则服务端会直接返回 code=2 参数错误。
+      final query = await WbiSign.makSign({
+        'biz_type': 'ogv',
+        'scene': 'normal',
+        'from_client': 'BROWSER',
+        'ep_id': epId,
+        'season_id': seasonId,
+        'qn': _ogvQn(qn ?? Pref.highQualityPlaybackQuality),
+        'fnver': 0,
+        'fnval': 4048,
+        'drm_tech_type': 2,
+        'version_name': '4.10.10',
+        'app_id': 100,
+        'web_location': '666.25',
+        'x-bili-locale-json': _localeJson,
+        'x-bili-device-req-json': _deviceReqJson,
+      });
       final url = Uri.https('api.bilibili.com', Api.ogvUrl, {
-        'ep_id': '$epId',
-        'season_id': '$seasonId',
-        'cid': '$cid',
-        'qn': '${qn ?? Pref.highQualityPlaybackQuality}',
+        for (final entry in query.entries) entry.key: '${entry.value}',
       }).toString();
 
       final userInfo = Pref.userInfoCache;
@@ -571,6 +586,13 @@ abstract final class HighQualityPlayback {
     return trimmed.endsWith('/')
         ? '${trimmed}api/bzview2'
         : '$trimmed/api/bzview2';
+  }
+
+  /// playview 可接受的 qn：HDR Vivid(129) 等新档位可能被拒，映射到最接近的档位
+  static int _ogvQn(int qn) {
+    const supported = [127, 126, 125, 120, 116, 112, 80, 74, 64, 32, 16];
+    if (supported.contains(qn)) return qn;
+    return qn > 127 ? 120 : 80;
   }
 
   /// 由已校验的服务地址拼出 bzview3 端点（番剧/课程）。
