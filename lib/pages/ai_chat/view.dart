@@ -902,10 +902,7 @@ class _AiChatPageState extends State<AiChatPage>
         SmartDialog.showToast('时间戳超出视频时长');
         return;
       }
-      videoCtl.plPlayerController.seekTo(
-        Duration(seconds: seconds),
-        isSeek: false,
-      );
+      videoCtl.plPlayerController.seekTo(Duration(seconds: seconds));
     } catch (_) {
       SmartDialog.showToast('跳转失败');
     }

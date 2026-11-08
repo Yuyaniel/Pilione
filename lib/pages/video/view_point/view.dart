@@ -133,10 +133,7 @@ class _ViewPointsPageState extends State<ViewPointsPage>
         onTap: segment.from != null
             ? () {
                 Get.back();
-                plPlayerController?.seekTo(
-                  Duration(seconds: segment.from!),
-                  isSeek: false,
-                );
+                plPlayerController?.seekTo(Duration(seconds: segment.from!));
               }
             : null,
         child: Padding(
