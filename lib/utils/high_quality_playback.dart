@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:PiliPlus/utils/hq_trace.dart';
+
 import 'package:PiliPlus/http/api.dart';
 import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
@@ -281,6 +283,8 @@ abstract final class HighQualityPlayback {
     required int cid,
     int? localDurationMs,
   }) async {
+    final startedAt = DateTime.now();
+    hqLog('request', 'start cid=$cid avid=$avid bvid=$bvid');
     final server = Pref.highQualityPlaybackServer.trim();
     final account = Accounts.video;
     if (server.isEmpty || !account.isLogin) {
@@ -399,6 +403,8 @@ abstract final class HighQualityPlayback {
           : codes.reduce((a, b) => a > b ? a : b);
       lastStatus = '成功：最高 ${_qualityDesc(highest)}'
           '${codes.isEmpty ? '' : '，共 ${codes.length} 档'}';
+      hqLog('request', 'ok cid=$cid highest=$highest '
+          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       // 服务端已计一次解析，后台刷新剩余次数（与提示共用同一次请求）
       unawaited(refreshRemaining());
       return playUrl;
@@ -420,6 +426,9 @@ abstract final class HighQualityPlayback {
     int? qn,
     bool iic = false,
   }) async {
+    final startedAt = DateTime.now();
+    hqLog('requestPgc', 'start ep=$epId season=$seasonId cid=$cid '
+        'qn=${qn ?? Pref.highQualityPlaybackQuality} iic=$iic');
     if (epId <= 0 || cid <= 0) {
       lastStatus = '未启用：缺少 ep_id 或 cid';
       return null;
@@ -477,6 +486,7 @@ abstract final class HighQualityPlayback {
 
       lastRequest = clipDebug(prettyMasked(payload));
       await _persistRecord(_cacheKeyRequest, lastRequest!);
+      hqLog('requestPgc', 'post ${endpointPgc(server)} url=$url');
 
       Future<Response<dynamic>> post() => _client.post<dynamic>(
         endpointPgc(server),
@@ -501,6 +511,8 @@ abstract final class HighQualityPlayback {
         }
       }
 
+      hqLog('requestPgc', 'http ${res.statusCode} '
+          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       final raw = res.data is String
           ? res.data as String
           : jsonEncode(res.data);
@@ -508,6 +520,8 @@ abstract final class HighQualityPlayback {
       await _persistRecord(_cacheKeyResponse, lastResponse!);
 
       final body = jsonDecode(raw);
+      hqLog('requestPgc', 'resp code=${body is Map ? body["code"] : "?"} '
+          'msg=${body is Map ? body["message"] : "?"} len=${raw.length}');
       if (body is! Map) {
         lastStatus = '失败：响应不是 JSON 对象';
         _enterCooldown();
@@ -538,6 +552,9 @@ abstract final class HighQualityPlayback {
       final hasVideo =
           playUrl.dash?.video?.isNotEmpty == true ||
           playUrl.durl?.isNotEmpty == true;
+      hqLog('requestPgc', 'parsed dash=${playUrl.dash?.video?.length ?? 0} '
+          'durl=${playUrl.durl?.length ?? 0} '
+          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       if (!hasVideo) {
         lastStatus = '失败：响应里没有可用视频流（可能是 DRM 或权限不足）';
         _enterCooldown();
@@ -558,6 +575,8 @@ abstract final class HighQualityPlayback {
       unawaited(refreshRemaining());
       return playUrl;
     } catch (e) {
+      hqLog('requestPgc', 'error $e '
+          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       // 服务端返回 4xx/5xx 时 Dio 会抛异常，这里把响应体记下来便于排查
       if (e is DioException && e.response != null) {
         lastResponse = clipDebug(
