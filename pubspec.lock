@@ -326,10 +326,10 @@ packages:
     dependency: transitive
     description:
       name: cnativeapi
-      sha256: "251fb93cd7ec205445fa512ee5ddeb0b82b3273d071cfc0784ddffbbdebbf5d3"
+      sha256: c43703998995e132b0656d2b8a95ed2bedc6b22ccee2c827bcdc075e0330e319
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.2"
+    version: "0.5.10"
   code_assets:
     dependency: transitive
     description:
@@ -470,10 +470,10 @@ packages:
     dependency: "direct main"
     description:
       name: dlna_dart
-      sha256: da607931548720331b7503f72c426fa7fbd19e9144a4778d293c16a5bc186407
+      sha256: "9518eb36fa6b24eb1c237baa98c4c6d1a39e5a100b1a9d47651271ea7311413f"
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1"
+    version: "0.1.2"
   dynamic_color:
     dependency: "direct main"
     description:
@@ -1347,18 +1347,18 @@ packages:
     dependency: "direct main"
     description:
       name: nativeapi
-      sha256: c4625e81f5ce2f4a9044c0ec1bdb38355119ffcf89e24eb20ae9fc5027a01e59
+      sha256: "118045bb549cb6fabad472a3a22a537e7310bbf20097350f5027808b4a5853ce"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.2"
+    version: "0.5.10"
   nativeapi_flutter:
     dependency: transitive
     description:
       name: nativeapi_flutter
-      sha256: "4feaa68cb5c4fc3b2eeaee1a25e56e2d092178e1c59516d9db5dd34940dcf36c"
+      sha256: "357a405c69212f5157da1bd3be183a53c2b841d0de0eb51f4a3947913712aec4"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.2"
+    version: "0.5.10"
   nested:
     dependency: transitive
     description:
@@ -2066,11 +2066,10 @@ packages:
   window_manager:
     dependency: "direct main"
     description:
-      path: "."
-      ref: main
-      resolved-ref: "80acd536a1ea1c121c36e32d30e638a295087ed1"
-      url: "https://github.com/leanflutter/window_manager.git"
-    source: git
+      name: window_manager
+      sha256: bdd6b1a2c1ce50f3bba7ffbaa0d5dc5feb6b6a24fd20269da4de90244f77a471
+      url: "https://pub.dev"
+    source: hosted
     version: "0.6.0"
   windows_file_picker:
     dependency: transitive
