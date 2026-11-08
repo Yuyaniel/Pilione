@@ -1302,6 +1302,11 @@ class VideoDetailController extends GetxController
         final drift =
             (ctrl.positionInMilliseconds - oldPosition.inMilliseconds).abs();
         if (drift > 3000) {
+          // seek 重构后不再等待 duration：切源刚完成时 duration 可能为 0，
+          // 直接 seek 会无效并回到 0 秒，这里等一拍再试。
+          if (ctrl.duration.value == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
           await ctrl.seekTo(oldPosition);
         }
       } else {
