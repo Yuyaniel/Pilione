@@ -1229,9 +1229,15 @@ class VideoDetailController extends GetxController
     }
     final current = data;
     final currentCid = cid.value;
-    final targetDesc = VideoQuality.fromCode(
-      Pref.highQualityPlaybackQuality,
-    ).desc;
+    // 上限只表示「不超过」：提示用当前视频实际可能达到的档位，
+    // 视频最高只有 1080P60 时不该显示设置里的 HDR 真彩
+    final cap = Pref.highQualityPlaybackQuality;
+    final localVideos = current.dash?.video;
+    final localTop = localVideos == null || localVideos.isEmpty
+        ? (currentVideoQa.value?.code ?? cap)
+        : localVideos.map((e) => e.id).reduce(max);
+    final expectedQa = localTop < cap ? localTop : cap;
+    final targetDesc = VideoQuality.fromCode(expectedQa).desc;
     // 与手动解锁一致的三段提示：正在解锁 → 已切换 → 剩余次数
     await _showUnlockTip(
       '正在解锁 $targetDesc…',
@@ -1413,14 +1419,14 @@ class VideoDetailController extends GetxController
     current.dash?.audio?.merge(remote.dash?.audio);
 
     final videos = current.dash?.video;
-    final hasTarget = videos?.any((e) => e.id == quality) ?? false;
-    if (!hasTarget) {
-      // 显式取最大档位 id，不依赖 dash.video「首元素为最高档」的服务端排序约定
-      final ids = videos?.map((e) => e.id);
-      final top = (ids == null || ids.isEmpty) ? null : ids.reduce(max);
-      return top == null
-          ? '服务端未返回可用画质'
-          : '该视频最高只有 ${VideoQuality.fromCode(top).desc}';
+    // 显式取最大档位 id，不依赖 dash.video「首元素为最高档」的服务端排序约定
+    final ids = videos?.map((e) => e.id);
+    final top = (ids == null || ids.isEmpty) ? null : ids.reduce(max);
+    if (top == null) return '服务端未返回可用画质';
+    // 上限只表示「不超过」：视频没有目标档位时自动降到它支持的最高档
+    final effective = quality <= top ? quality : top;
+    if (effective <= (currentVideoQa.value?.code ?? 0)) {
+      return '当前已是最高可用画质（${VideoQuality.fromCode(effective).desc}）';
     }
 
     // 切换前的状态，失败时原样恢复
@@ -1431,7 +1437,7 @@ class VideoDetailController extends GetxController
     final oldCacheQa = plPlayerController.cacheVideoQa;
 
     _autoPlay.value = true;
-    _prepareQualitySource(quality);
+    _prepareQualitySource(effective);
 
     var switched = false;
     try {
@@ -1473,7 +1479,7 @@ class VideoDetailController extends GetxController
       return '画质切换失败，已保留原画质';
     }
 
-    persistVideoQa(quality);
+    persistVideoQa(effective);
     return null;
   }
 
@@ -1504,7 +1510,13 @@ class VideoDetailController extends GetxController
       cancelBackgroundHighQuality();
       // 上一次的提示可能还在展示，先关掉避免和新的 loading 叠在底部
       unawaited(SmartDialog.dismiss(tag: _quotaTag));
-      final desc = VideoQuality.fromCode(quality).desc;
+      // 与自动切换一致：按当前视频已知的最高档位提示，不用设置的上限
+      final localVideos = data.dash?.video;
+      final localTop = localVideos == null || localVideos.isEmpty
+          ? (currentVideoQa.value?.code ?? quality)
+          : localVideos.map((e) => e.id).reduce(max);
+      final expectedQa = localTop < quality ? localTop : quality;
+      final desc = VideoQuality.fromCode(expectedQa).desc;
       final startedAt = DateTime.now();
       // 与结果提示同位置、同外观：贴底、无遮罩、可穿透，解锁期间画面照常播放。
       // 兜底 30s：请求最坏 ~10.5s + 一次切源 15s，正常路径由下面的 dismiss 关闭。
@@ -1542,7 +1554,11 @@ class VideoDetailController extends GetxController
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
-      await _showUnlockTip('已解锁并切换到 $desc');
+      // 成功提示用真正切到的档位，远端可能给出比本地预估更高的画质
+      final actualDesc = VideoQuality.fromCode(
+        currentVideoQa.value?.code ?? expectedQa,
+      ).desc;
+      await _showUnlockTip('已解锁并切换到 $actualDesc');
 
       final remaining = await quota;
       // 保证成功提示至少可读 800ms
