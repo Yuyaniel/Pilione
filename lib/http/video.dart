@@ -52,13 +52,30 @@ abstract final class VideoHttp {
   static bool enableFilter = zoneRegExp.isNotEmpty;
 
   // 首页推荐视频
+  //
+  // [desktop] 为 true 时沿用同一个公开网页接口，改用哔哩哔哩官方 Windows
+  // 客户端首页实际发送的参数组合：plat=1、feed_version=V1、fresh_type 表示
+  // 操作类型（0 初次 / 4 加载更多）、x_num/y_num 为可视网格行列数。
   static Future<LoadingState<List<RcmdVideoItemModel>>> rcmdVideoList({
     required int ps,
     required int freshIdx,
+    bool desktop = false,
   }) async {
-    final res = await Request().get(
-      Api.recommendListWeb,
-      queryParameters: await WbiSign.makSign({
+    final Map<String, Object> params;
+    if (desktop) {
+      params = <String, Object>{
+        'plat': 1,
+        'feed_version': 'V1',
+        'ps': ps,
+        'fresh_idx': freshIdx,
+        'fresh_type': freshIdx == 0 ? 0 : 4,
+        'x_num': 3,
+        'y_num': 4,
+        'pc_wx_install': 0,
+        'pc_wx_gm_install': 0,
+      };
+    } else {
+      params = <String, Object>{
         'version': 1,
         'feed_version': 'V8',
         'homepage_ver': 1,
@@ -66,7 +83,11 @@ abstract final class VideoHttp {
         'fresh_idx': freshIdx,
         'brush': freshIdx,
         'fresh_type': 4,
-      }),
+      };
+    }
+    final res = await Request().get(
+      Api.recommendListWeb,
+      queryParameters: await WbiSign.makSign(params),
     );
     if (res.data['code'] == 0) {
       List<RcmdVideoItemModel> list = <RcmdVideoItemModel>[];

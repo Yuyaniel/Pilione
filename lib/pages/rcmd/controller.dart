@@ -36,9 +36,16 @@ class RcmdController extends CommonListController {
     if (rcmdMode != RcmdMode.merged) {
       // 单源模式
       _isFirstPage = (page == 0);
-      return appRcmd
-          ? VideoHttp.rcmdVideoListApp(freshIdx: page)
-          : VideoHttp.rcmdVideoList(freshIdx: page, ps: 20);
+      return switch (rcmdMode) {
+        RcmdMode.app => VideoHttp.rcmdVideoListApp(freshIdx: page),
+        // 桌面端：与官方 Windows 客户端一致，每次请求 30 条
+        RcmdMode.desktop => VideoHttp.rcmdVideoList(
+          freshIdx: page,
+          ps: 30,
+          desktop: true,
+        ),
+        _ => VideoHttp.rcmdVideoList(freshIdx: page, ps: 20),
+      };
     }
 
     // 合并模式：并行请求

@@ -138,8 +138,8 @@ Future<void> _showDmChartSourceDialog(
       title: '高能进度条',
       value: Pref.dmChartSource,
       values: DmChartSource.values.map((e) => (e, e.label)).toList(),
-      subtitleBuilder: (context, index) => Text(
-        DmChartSource.values[index].desc,
+      subtitleBuilder: (context, index, type) => Text(
+        type.desc,
         style: TextTheme.of(context).bodySmall,
       ),
     ),

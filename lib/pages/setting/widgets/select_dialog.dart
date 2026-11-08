@@ -4,7 +4,7 @@ class SelectDialog<T> extends StatelessWidget {
   final T? value;
   final String title;
   final List<(T, String)> values;
-  final Widget Function(BuildContext, int)? subtitleBuilder;
+  final Widget? Function(BuildContext, int, T)? subtitleBuilder;
   final bool toggleable;
 
   const SelectDialog({
@@ -38,6 +38,11 @@ class SelectDialog<T> extends StatelessWidget {
                 values.length,
                 (index) {
                   final item = values[index];
+                  final subtitle = subtitleBuilder?.call(
+                    context,
+                    index,
+                    item.$1,
+                  );
                   return RadioListTile<T>(
                     toggleable: toggleable,
                     dense: true,
@@ -46,7 +51,8 @@ class SelectDialog<T> extends StatelessWidget {
                       item.$2,
                       style: titleMedium,
                     ),
-                    subtitle: subtitleBuilder?.call(context, index),
+                    subtitle: subtitle,
+                    isThreeLine: subtitle != null,
                   );
                 },
               ),

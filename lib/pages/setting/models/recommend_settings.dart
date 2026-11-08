@@ -20,7 +20,7 @@ import 'package:material_ui/material_ui.dart';
 
 List<SettingsModel> get recommendSettings => [
   NormalModel(
-    title: '首页推荐模式',
+    title: '首页推荐来源',
     leading: const Icon(Icons.model_training_outlined),
     getSubtitle: () => '当前:「${Pref.rcmdMode.label}」',
     onTap: _showRcmdModeDialog,
@@ -239,9 +239,22 @@ Future<void> _showRcmdModeDialog(
   final res = await showDialog<RcmdMode>(
     context: context,
     builder: (context) => SelectDialog<RcmdMode>(
-      title: '首页推荐模式',
+      title: '首页推荐来源',
       value: Pref.rcmdMode,
       values: RcmdMode.values.map((e) => (e, e.label)).toList(),
+      subtitleBuilder: (context, index, type) {
+        switch (type) {
+          case .desktop:
+            return const Text(
+              '沿用公开的网页推荐接口，按哔哩哔哩官方 Windows 客户端首页'
+              '实际发送的参数组合请求，不涉及私有接口与设备指纹',
+            );
+          case .merged:
+            return const Text('同时请求 App 端与 Web 端推荐，合并展示');
+          default:
+            return null;
+        }
+      },
     ),
   );
   if (res != null) {
