@@ -43,6 +43,11 @@ abstract final class HighQualityPlayback {
   static const String _localeJson =
       '{"c_locale":{"language":"zh","script":"Hans"},"always_translate":false}';
 
+  /// 番剧 playview 的 locale 参数，必须与网页那份完全一致（zh-Hans），
+  /// 否则服务端重放时 w_rid 对应的参数集不同，会判 invalid。
+  static const String _pgcLocaleJson =
+      '{"c_locale":{"language":"zh-Hans"},"always_translate":false}';
+
   static const int defaultQuality = 116;
 
   /// 远端比本地短这么多（毫秒）以上就认为是试看片段
@@ -446,7 +451,7 @@ abstract final class HighQualityPlayback {
         'version_name': '4.10.10',
         'app_id': 100,
         'web_location': '666.25',
-        'x-bili-locale-json': _localeJson,
+        'x-bili-locale-json': _pgcLocaleJson,
         'x-bili-device-req-json': _deviceReqJson,
       });
       final url = Uri.https('api.bilibili.com', Api.ogvUrl, {
@@ -473,12 +478,28 @@ abstract final class HighQualityPlayback {
       lastRequest = clipDebug(prettyMasked(payload));
       await _persistRecord(_cacheKeyRequest, lastRequest!);
 
-      final res = await _client.post<dynamic>(
+      Future<Response<dynamic>> post() => _client.post<dynamic>(
         endpointPgc(server),
         data: payload,
-        // 番剧 playview 比 UGC 慢，放宽接收超时
-        options: Options(receiveTimeout: const Duration(seconds: 20)),
+        // 番剧 playview 比 UGC 慢，放宽接收超时；
+        // 服务端 gunicorn keep-alive 只有 5s，复用连接容易被 RST，固定用完即关
+        options: Options(
+          receiveTimeout: const Duration(seconds: 20),
+          headers: const {'connection': 'close'},
+        ),
       );
+
+      Response<dynamic> res;
+      try {
+        res = await post();
+      } on DioException catch (e) {
+        // 与 IMZCC/PiliNara 的处理一致：失败换连接重试一次
+        if (_isNetworkError(e)) {
+          res = await post();
+        } else {
+          rethrow;
+        }
+      }
 
       final raw = res.data is String
           ? res.data as String
