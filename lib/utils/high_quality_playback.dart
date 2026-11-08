@@ -476,6 +476,8 @@ abstract final class HighQualityPlayback {
       final res = await _client.post<dynamic>(
         endpointPgc(server),
         data: payload,
+        // 番剧 playview 比 UGC 慢，放宽接收超时
+        options: Options(receiveTimeout: const Duration(seconds: 20)),
       );
 
       final raw = res.data is String
@@ -531,6 +533,13 @@ abstract final class HighQualityPlayback {
       unawaited(refreshRemaining());
       return playUrl;
     } catch (e) {
+      // 服务端返回 4xx/5xx 时 Dio 会抛异常，这里把响应体记下来便于排查
+      if (e is DioException && e.response != null) {
+        lastResponse = clipDebug(
+          'HTTP ${e.response!.statusCode}: ${e.response!.data}',
+        );
+        await _persistRecord(_cacheKeyResponse, lastResponse!);
+      }
       lastStatus = '失败：${friendlyError(e)}';
       _enterCooldown(networkError: _isNetworkError(e));
       return null;
