@@ -7,7 +7,8 @@ import 'package:PiliPlus/utils/high_quality_playback.dart';
 import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, FilteringTextInputFormatter;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -51,7 +52,8 @@ List<SettingsModel> get labSettings => [
     title: '起播加速：预读等待时间',
     leading: const Icon(Icons.timer_outlined),
     getSubtitle: () => '高画质无缝换流时给播放器后台缓冲新流的时间，'
-        '当前 ${Pref.playerPrefetchWaitMs}ms；调短变清晰更快，调长切换点更稳',
+        '当前 ${Pref.playerPrefetchWaitMs}ms；可输入 100~5000 毫秒，'
+        '调短变清晰更快，调长切换点更稳',
     onTap: _showPrefetchWaitDialog,
   ),
   const SwitchModel(
@@ -341,17 +343,47 @@ Future<void> _showPrefetchWaitDialog(
   BuildContext context,
   VoidCallback setState,
 ) async {
+  var value = '${Pref.playerPrefetchWaitMs}';
   final res = await showDialog<int>(
     context: context,
-    builder: (context) => SelectDialog<int>(
-      title: '预读等待时间',
-      value: Pref.playerPrefetchWaitMs,
-      values: const [
-        (300, '300ms（最快，弱网切换点可能卡）'),
-        (600, '600ms（较快）'),
-        (800, '800ms'),
-        (1200, '1200ms（默认）'),
-        (2000, '2000ms（最稳）'),
+    builder: (context) => AlertDialog(
+      title: const Text('预读等待时间'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            initialValue: value,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: const InputDecoration(hintText: '毫秒'),
+            onChanged: (v) => value = v,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            '无缝换流时给播放器后台缓冲新流的时间，允许 100~5000 毫秒。'
+            '调短变清晰更快，调长切换点更稳。',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () {
+            final ms = int.tryParse(value.trim());
+            if (ms == null || ms < 100 || ms > 5000) {
+              SmartDialog.showToast('请输入 100~5000 之间的毫秒数');
+              return;
+            }
+            Navigator.pop(context, ms);
+          },
+          child: const Text('确定'),
+        ),
       ],
     ),
   );
