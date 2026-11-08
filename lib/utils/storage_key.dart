@@ -32,6 +32,7 @@ abstract final class SettingBoxKey {
       pgcPlayback = 'pgcPlayback',
       enablePlayUrlCache = 'enablePlayUrlCache',
       enableCdnMemory = 'enableCdnMemory',
+      playerPrefetchWaitMs = 'playerPrefetchWaitMs',
       hideDynamicsTabs = 'hideDynamicsTabs',
       hideDynamicsChargeVideo = 'hideDynamicsChargeVideo',
       dynUpPanelShowGroup = 'dynUpPanelShowGroup',

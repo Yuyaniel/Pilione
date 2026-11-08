@@ -1303,6 +1303,10 @@ abstract final class Pref {
   static bool get enableCdnMemory =>
       _setting.get(SettingBoxKey.enableCdnMemory, defaultValue: true);
 
+  /// 无缝换流：mpv 播放列表预读等待时间（毫秒），实验室可调
+  static int get playerPrefetchWaitMs =>
+      _setting.get(SettingBoxKey.playerPrefetchWaitMs, defaultValue: 1200);
+
   static bool get autoLikeOnProgress =>
       _setting.get(SettingBoxKey.autoLikeOnProgress, defaultValue: false);
 

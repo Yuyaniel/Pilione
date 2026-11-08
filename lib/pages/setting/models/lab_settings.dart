@@ -47,6 +47,13 @@ List<SettingsModel> get labSettings => [
     setKey: SettingBoxKey.enableCdnMemory,
     defaultVal: true,
   ),
+  NormalModel(
+    title: '起播加速：预读等待时间',
+    leading: const Icon(Icons.timer_outlined),
+    getSubtitle: () => '高画质无缝换流时给播放器后台缓冲新流的时间，'
+        '当前 ${Pref.playerPrefetchWaitMs}ms；调短变清晰更快，调长切换点更稳',
+    onTap: _showPrefetchWaitDialog,
+  ),
   const SwitchModel(
     title: '起播后自动切换高画质',
     subtitle: '先用官方通道快速起播，缓冲充足后后台解析并静默切换，切换瞬间画面会短暂停顿；失败自动保留原画质',
@@ -326,6 +333,30 @@ Future<void> _showHighQualityQualityDialog(
   );
   if (res != null) {
     await GStorage.setting.put(SettingBoxKey.highQualityPlaybackQuality, res);
+    setState();
+  }
+}
+
+Future<void> _showPrefetchWaitDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final res = await showDialog<int>(
+    context: context,
+    builder: (context) => SelectDialog<int>(
+      title: '预读等待时间',
+      value: Pref.playerPrefetchWaitMs,
+      values: const [
+        (300, '300ms（最快，弱网切换点可能卡）'),
+        (600, '600ms（较快）'),
+        (800, '800ms'),
+        (1200, '1200ms（默认）'),
+        (2000, '2000ms（最稳）'),
+      ],
+    ),
+  );
+  if (res != null) {
+    await GStorage.setting.put(SettingBoxKey.playerPrefetchWaitMs, res);
     setState();
   }
 }
