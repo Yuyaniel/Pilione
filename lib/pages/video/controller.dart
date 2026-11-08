@@ -16,6 +16,7 @@ import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/browser_ua.dart';
 import 'package:PiliPlus/http/fav.dart';
 import 'package:PiliPlus/http/init.dart';
+import 'package:PiliPlus/utils/hq_trace.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/user.dart';
 import 'package:PiliPlus/http/video.dart';
@@ -1146,8 +1147,49 @@ class VideoDetailController extends GetxController
   /// 解锁相关提示共用的 dialog tag（先关旧再开新，避免叠加）
   static const String _quotaTag = 'highQualityQuota';
 
+  /// 起播并行预解析的结果：官方 playurl 与远端解析同时发出，
+  /// 进全屏时结果通常已就绪，直接切流，省掉整段解析等待。
+  /// 每次起播固定消耗一次解析次数（不省次数模式）。
+  Future<PlayUrlModel?>? _prefetchFuture;
+  int? _prefetchCid;
+
+  bool get _prefetchReady =>
+      _prefetchFuture != null && _prefetchCid == cid.value;
+
+  void _startPrefetchHighQuality() {
+    _prefetchFuture = null;
+    _prefetchCid = null;
+    if (!isUgc || isFileSource) return;
+    if (!Pref.highQualityPlaybackOnStartup) return;
+    if (!HighQualityPlayback.configured) return;
+    final currentCid = cid.value;
+    if (HighQualityPlayback.isUnlocked(currentCid)) return;
+    if ((currentVideoQa.value?.code ?? 0) >= Pref.highQualityPlaybackQuality) {
+      return;
+    }
+    _prefetchCid = currentCid;
+    final startedAt = DateTime.now();
+    hqLog('prefetch', 'start cid=$currentCid bvid=$bvid');
+    _prefetchFuture = HighQualityPlayback.request(
+      bvid: bvid,
+      cid: currentCid,
+      localDurationMs: _knownDuration,
+    );
+    unawaited(
+      _prefetchFuture!.then((remote) {
+        hqLog('prefetch', 'done cid=$currentCid ok=${remote != null} '
+            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
+      }).catchError((Object e) {
+        hqLog('prefetch', 'error $e');
+      }),
+    );
+  }
+
   /// 起播后登记一次自动切换资格；真正的触发在进入全屏时（事件驱动）。
   void _scheduleBackgroundHighQuality() {
+    hqLog('schedule', 'cid=${cid.value} '
+        'startup=${Pref.highQualityPlaybackOnStartup} '
+        'configured=${HighQualityPlayback.configured}');
     if (!isUgc || isFileSource) return;
     if (!Pref.highQualityPlaybackOnStartup) return;
     if (!HighQualityPlayback.configured) return;
@@ -1162,6 +1204,7 @@ class VideoDetailController extends GetxController
 
   /// 进入全屏：开始观察缓冲，满足「缓冲 ≥5s 且不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
+    hqLog('arm', 'enter cid=${cid.value} fs=${plPlayerController.isFullScreen.value}');
     // 手动解锁 / 后台切源进行中，别叠加第二次重开
     if (_unlocking || _bgQaSwitching) return;
     final pendingCid = _bgQaPendingCid;
@@ -1211,6 +1254,8 @@ class VideoDetailController extends GetxController
       return false;
     }
     if (ctrl.position.value < 2) return false;
+    // 远端结果已就绪：切流由播放列表预读保证，不必再等旧流缓冲到 5s
+    if (_prefetchReady) return true;
     return ctrl.buffered.value >= 5;
   }
 
@@ -1220,9 +1265,15 @@ class VideoDetailController extends GetxController
     _bgQaProbe?.cancel();
     _bgQaProbe = null;
     _bgQaPendingCid = null;
+    // 切集 / 手动接管：丢弃还没消费的预解析结果，避免把上一集的流换到新一集
+    _prefetchFuture = null;
+    _prefetchCid = null;
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {
+    final startedAt = DateTime.now();
+    hqLog('bg', 'start gen=$generation cid=${cid.value} '
+        'curQa=${currentVideoQa.value?.code} cap=${Pref.highQualityPlaybackQuality}');
     // 全屏默认画质等路径已经达到目标，不再浪费一次解析
     if ((currentVideoQa.value?.code ?? 0) >= Pref.highQualityPlaybackQuality) {
       return;
@@ -1245,13 +1296,34 @@ class VideoDetailController extends GetxController
     );
     var switchedQa = 0;
     try {
-      final remote = await HighQualityPlayback.request(
-        bvid: bvid,
-        cid: currentCid,
-        localDurationMs: _knownDuration,
-      );
+      final prefetched = _prefetchFuture;
+      final hit = prefetched != null && _prefetchCid == currentCid;
+      hqLog('bg', hit
+          ? 'prefetch HIT cid=$currentCid (skip request)'
+          : 'prefetch MISS cid=$currentCid, request now');
+      final Future<PlayUrlModel?> pending = hit
+          ? prefetched
+          : HighQualityPlayback.request(
+              bvid: bvid,
+              cid: currentCid,
+              localDurationMs: _knownDuration,
+            );
+      var remote = await pending;
+      // 预解析失败时再试一次（不省次数模式）
+      if (remote == null && hit) {
+        hqLog('bg', 'prefetch returned null, retry once');
+        remote = await HighQualityPlayback.request(
+          bvid: bvid,
+          cid: currentCid,
+          localDurationMs: _knownDuration,
+        );
+      }
       // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
-      if (remote == null) return;
+      if (remote == null) {
+        hqLog('bg', 'remote null elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
+        return;
+      }
+      hqLog('bg', 'remote ok elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       if (generation != _bgQaGeneration ||
           isClosed ||
           !identical(current, data) ||
@@ -1269,10 +1341,16 @@ class VideoDetailController extends GetxController
       final top = videos.map((e) => e.id).reduce(max);
       final target = Pref.highQualityPlaybackQuality;
       final qa = target <= top ? target : top;
+      hqLog('bg', 'top=$top target=$target qa=$qa');
       if (qa <= (currentVideoQa.value?.code ?? 0)) return;
 
-      if (!await _switchQualitySilently(qa, generation)) return;
+      if (!await _switchQualitySilently(qa, generation)) {
+        hqLog('bg', 'switch failed/cancelled');
+        return;
+      }
       switchedQa = qa;
+      hqLog('bg', 'switch done qa=$qa '
+          'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
     } finally {
       await SmartDialog.dismiss(tag: _quotaTag);
     }
@@ -1306,6 +1384,8 @@ class VideoDetailController extends GetxController
     final oldDefaultST = defaultST;
     final oldAutoPlay = _autoPlay.value;
 
+    final startedAt = DateTime.now();
+    hqLog('switch', 'start qa=$quality gen=$generation pos=${oldPosition.inMilliseconds}');
     _bgQaSwitching = true;
     ctrl.suppressBufferingIndicator.value = true;
     var cancelled = false;
@@ -1330,8 +1410,12 @@ class VideoDetailController extends GetxController
         ).timeout(const Duration(seconds: 15));
         ok = ctrl.dataStatus.value != DataStatus.error;
         seamless = ok;
+        hqLog('switch', 'swap returned ok=$ok seamless=$seamless '
+            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       } catch (_) {
         ok = false;
+        hqLog('switch', 'swap threw '
+            'elapsed=${DateTime.now().difference(startedAt).inMilliseconds}ms');
       }
 
       // 期间被手动改画质 / 切集 / 关闭页面接管：交给新操作，既不加 seek 也不回退，
@@ -1676,6 +1760,8 @@ class VideoDetailController extends GetxController
     }
     isQuerying = true;
     try {
+    // 起播即并行发远端解析：官方 playurl 与它同时跑
+    _startPrefetchHighQuality();
     if (_lastQueryBvid != bvid || _lastQueryCid != cid.value) {
       // 跨视频/分P时重置画质缓存，确保根据半屏/全屏设置重新选择默认画质。
       // resetTempSettings 在 setDataSource 中执行（HTTP 请求之后），
