@@ -428,7 +428,23 @@ class VideoDetailController extends GetxController
   /// 新视频页面的 onInit 会覆盖回调为新 controller 的闭包，返回后需重新注册。
   void setupFullScreenQualitySwitch() {
     plPlayerController.onFullScreenChanged = (bool fs) async {
-      if (!fs || plPlayerController.isLive) return;
+      if (plPlayerController.isLive) return;
+
+      if (!fs) {
+        // 退出全屏：停掉还在等缓冲的观察；已经开始的切换不打断
+        _pauseBackgroundHighQuality();
+        return;
+      }
+
+      // 开了「起播后自动切换」时，全屏升档交给后台任务，
+      // 避免先升默认画质、再切目标档的连续两次重开
+      if (Pref.highQualityPlaybackOnStartup &&
+          HighQualityPlayback.configured &&
+          !HighQualityPlayback.isUnlocked(cid.value)) {
+        _armBackgroundHighQuality();
+        return;
+      }
+
       if (isQuerying) return;
       // 后台正在静默切源，别叠加第二次重开
       if (_bgQaSwitching) return;
@@ -1116,9 +1132,10 @@ class VideoDetailController extends GetxController
   // 第二阶段：首帧稳定且前向缓冲 ≥5 秒后，后台请求更高画质并静默切源续播。
   // 切换失败自动回退原画质；手动改画质 / 切集 / 离开页面都会取消挂起任务。
 
-  Timer? _bgQaTimer;
+  Timer? _bgQaProbe;
   int _bgQaGeneration = 0;
   int? _bgQaTriedCid;
+  int? _bgQaPendingCid;
   bool _bgQaSwitching = false;
 
   /// 手动解锁进行中：loading 可穿透，避免重复触发两次切源
@@ -1130,32 +1147,52 @@ class VideoDetailController extends GetxController
   /// 解锁相关提示共用的 dialog tag（先关旧再开新，避免叠加）
   static const String _quotaTag = 'highQualityQuota';
 
-  /// 起播稳定后开始观察缓冲；满足「缓冲 ≥5s 且不卡顿」才真正发请求。
+  /// 起播后登记一次自动切换资格；真正的触发在进入全屏时（事件驱动）。
   void _scheduleBackgroundHighQuality() {
     if (!isUgc || isFileSource) return;
     if (!Pref.highQualityPlaybackOnStartup) return;
     if (!HighQualityPlayback.configured) return;
     if (HighQualityPlayback.isUnlocked(cid.value)) return;
     if (_bgQaTriedCid == cid.value) return;
-    _bgQaTriedCid = cid.value;
+    _bgQaPendingCid = cid.value;
+    // 起播时已经在全屏（全屏连播），直接开始等缓冲
+    if (plPlayerController.isFullScreen.value) {
+      _armBackgroundHighQuality();
+    }
+  }
+
+  /// 进入全屏：开始观察缓冲，满足「缓冲 ≥5s 且不卡顿」就静默切换。
+  void _armBackgroundHighQuality() {
+    // 手动解锁 / 后台切源进行中，别叠加第二次重开
+    if (_unlocking || _bgQaSwitching) return;
+    final pendingCid = _bgQaPendingCid;
+    if (pendingCid == null || pendingCid != cid.value) return;
+    if (_bgQaTriedCid == cid.value) return;
+    if (_bgQaProbe != null) return;
 
     final generation = ++_bgQaGeneration;
-    _bgQaTimer?.cancel();
-    final deadline = DateTime.now().add(const Duration(seconds: 40));
-    _bgQaTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-      if (generation != _bgQaGeneration) {
+    final deadline = DateTime.now().add(const Duration(seconds: 30));
+    _bgQaProbe = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (generation != _bgQaGeneration ||
+          isClosed ||
+          _bgQaPendingCid != cid.value ||
+          !plPlayerController.isFullScreen.value) {
         timer.cancel();
+        _bgQaProbe = null;
         return;
       }
-      if (isClosed || DateTime.now().isAfter(deadline)) {
-        timer.cancel();
-        return;
-      }
-      if (!_bgQaReady) return;
+      if (DateTime.now().isAfter(deadline) || !_bgQaReady) return;
       timer.cancel();
-      _bgQaTimer = null;
+      _bgQaProbe = null;
+      _bgQaTriedCid = pendingCid;
       unawaited(_runBackgroundHighQuality(generation));
     });
+  }
+
+  /// 退出全屏：停掉观察但保留资格，下次进全屏再试。
+  void _pauseBackgroundHighQuality() {
+    _bgQaProbe?.cancel();
+    _bgQaProbe = null;
   }
 
   /// 切源前的安全窗口：已出画面、缓冲充足、不在卡顿 / 小窗 / 其他切换中。
@@ -1163,6 +1200,8 @@ class VideoDetailController extends GetxController
     final ctrl = plPlayerController;
     if (ctrl.processing || _bgQaSwitching) return false;
     if (ctrl.isPipMode) return false;
+    // 只在全屏时静默切换
+    if (!ctrl.isFullScreen.value) return false;
     // 退到后台时不动播放器，避免把后台播放的音频打断
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       return false;
@@ -1176,14 +1215,19 @@ class VideoDetailController extends GetxController
     return ctrl.buffered.value >= 5;
   }
 
-  /// 取消挂起的自动切换（手动改画质、切集、离开页面时调用）。
+  /// 取消自动切换资格（手动改画质、切集、离开页面时调用）。
   void cancelBackgroundHighQuality() {
     _bgQaGeneration++;
-    _bgQaTimer?.cancel();
-    _bgQaTimer = null;
+    _bgQaProbe?.cancel();
+    _bgQaProbe = null;
+    _bgQaPendingCid = null;
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {
+    // 全屏默认画质等路径已经达到目标，不再浪费一次解析
+    if ((currentVideoQa.value?.code ?? 0) >= Pref.highQualityPlaybackQuality) {
+      return;
+    }
     final current = data;
     final currentCid = cid.value;
     final remote = await HighQualityPlayback.request(
