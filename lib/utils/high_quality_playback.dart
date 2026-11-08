@@ -413,6 +413,7 @@ abstract final class HighQualityPlayback {
     required int seasonId,
     required int cid,
     int? qn,
+    bool iic = false,
   }) async {
     if (epId <= 0 || cid <= 0) {
       lastStatus = '未启用：缺少 ep_id 或 cid';
@@ -455,6 +456,8 @@ abstract final class HighQualityPlayback {
       final userInfo = Pref.userInfoCache;
       final cookie = _currentCookie(account);
       final payload = <String, dynamic>{
+        // 脚本原逻辑：官方响应里出现 AreaLimitPanel 说明区域受限，服务端据此选线路
+        'iic': iic,
         'ui': {
           'ua': desktopUa,
           'mid': '${userInfo?.mid ?? midFromCookie(cookie)}',
