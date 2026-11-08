@@ -7,12 +7,14 @@ import 'package:PiliPlus/common/widgets/flutter/refresh_indicator.dart';
 import 'package:PiliPlus/common/widgets/image/network_img_layer.dart';
 import 'package:PiliPlus/common/widgets/loading_widget/http_error.dart';
 import 'package:PiliPlus/common/widgets/pair.dart';
+import 'package:PiliPlus/common/widgets/sliver/sliver_pinned_header.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models_new/live/live_feed_index/card_data_list_item.dart';
 import 'package:PiliPlus/models_new/live/live_feed_index/card_list.dart';
 import 'package:PiliPlus/pages/live/controller.dart';
 import 'package:PiliPlus/pages/home/home_preview_scope.dart';
 import 'package:PiliPlus/pages/live/widgets/live_item_app.dart';
+import 'package:PiliPlus/pages/live/widgets/sliver_pinned_header.dart';
 import 'package:PiliPlus/pages/live_area/view.dart';
 import 'package:PiliPlus/pages/live_follow/view.dart';
 import 'package:PiliPlus/pages/search/widgets/search_text.dart';
@@ -81,21 +83,51 @@ class _LivePageState extends State<LivePage>
   }
 
   Widget _buildTop(ThemeData theme, Pair<LiveCardList?, LiveCardList?> data) {
-    return SliverMainAxisGroup(
-      slivers: [
-        if (data.first != null) ..._buildFollowList(theme, data.first!),
-        if (data.second?.cardData?.areaEntranceV3?.list case final list?)
-          if (list.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const .only(bottom: 8.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        // 10+14*textScaler
-                        height: 10.0 + textScaler.scale(14),
-                        child: Obx(() {
+    final list = data.second?.cardData?.areaEntranceV3?.list;
+    if (list == null || list.isEmpty) {
+      controller.onTopHeightChanged(0.0);
+      return const SliverToBoxAdapter();
+    }
+
+    final areaHeight = 10.0 + textScaler.scale(14);
+    final area = _buildLiveArea(theme, list, areaHeight);
+
+    final follow = data.first;
+    if (follow != null &&
+        (follow.cardData?.myIdolV1?.list?.isNotEmpty ?? false)) {
+      return LiveSliverPinnedHeader(
+        areaHeight: areaHeight + 16,
+        backgroundColor: theme.colorScheme.surface,
+        callback: controller.onTopHeightChanged,
+        child: Column(
+          children: [
+            ..._buildFollowList(theme, follow),
+            area,
+          ],
+        ),
+      );
+    }
+
+    controller.onTopHeightChanged(0.0);
+    return SliverPinnedHeader(
+      backgroundColor: theme.colorScheme.surface,
+      child: area,
+    );
+  }
+
+  Widget _buildLiveArea(
+    ThemeData theme,
+    List<CardLiveItem> list,
+    double areaHeight,
+  ) {
+    return Padding(
+      padding: const .only(bottom: 8.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: areaHeight,
+              child: Obx(() {
                           final areaIndex = controller.areaIndex.value;
                           return ListView.separated(
                             scrollDirection: .horizontal,
@@ -170,11 +202,8 @@ class _LivePageState extends State<LivePage>
                       icon: const Icon(Icons.widgets),
                       onPressed: () => Get.to(const LiveAreaPage()),
                     ),
-                  ],
-                ),
-              ),
-            ),
-      ],
+          ],
+        ),
     );
   }
 
@@ -267,10 +296,9 @@ class _LivePageState extends State<LivePage>
   List<Widget> _buildFollowList(ThemeData theme, LiveCardList item) {
     final totalCount = item.cardData?.myIdolV1?.extraInfo?.totalCount ?? 0;
     return [
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const .only(bottom: 8.0),
-          child: Row(
+      Padding(
+        padding: const .only(bottom: 8.0),
+        child: Row(
             mainAxisAlignment: .spaceBetween,
             children: [
               Text.rich(
@@ -300,7 +328,6 @@ class _LivePageState extends State<LivePage>
               ),
             ],
           ),
-        ),
       ),
       if (item.cardData?.myIdolV1?.list case final list?)
         if (list.isNotEmpty) _buildFollowBody(theme, list, totalCount),
@@ -313,8 +340,7 @@ class _LivePageState extends State<LivePage>
     int totalCount,
   ) {
     final listLength = followList.length;
-    return SliverToBoxAdapter(
-      child: SizedBox(
+    return SizedBox(
         // 3+4+45+6+10+12*textScaler
         height: 68.0 + textScaler.scale(12),
         child: CustomScrollView(
@@ -398,7 +424,6 @@ class _LivePageState extends State<LivePage>
             ),
           ],
         ),
-      ),
     );
   }
 }

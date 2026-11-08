@@ -34,6 +34,20 @@ class LiveController extends CommonListController with AccountMixin {
   final Rx<Pair<LiveCardList?, LiveCardList?>> topState =
       Pair<LiveCardList?, LiveCardList?>(first: null, second: null).obs;
 
+  /// 顶部固定区高度，pinned header 布局时回调
+  double _topHeight = 0.0;
+  void onTopHeightChanged(double value) {
+    _topHeight = value;
+  }
+
+  /// 切换分区后回到列表顶部，避免停在旧的滚动位置
+  void _jumpToListTop() {
+    if (scrollController.hasClients &&
+        scrollController.position.pixels > _topHeight) {
+      scrollController.jumpTo(_topHeight);
+    }
+  }
+
   final followController = ScrollController();
 
   bool showFirstFrame = false;
@@ -132,7 +146,7 @@ class LiveController extends CommonListController with AccountMixin {
     count = null;
     page = 1;
     isEnd = false;
-    queryData();
+    queryData().whenComplete(_jumpToListTop);
   }
 
   void onSelectTag(int index, String? sortType) {
