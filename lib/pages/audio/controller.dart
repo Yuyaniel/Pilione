@@ -848,7 +848,9 @@ class AudioController extends GetxController
       ..onSkipToNext = null
       ..onSkipToPrevious = null
       ..isPlaying = null
-      ..onVideoDetailDispose(hashCode.toString())
+      // [FORK] 本地音频页 tag 来自 Get.arguments['heroTag']，
+      // 不能用 hashCode，否则 onVideoDetailDispose 永远匹配不到而跳过清理。
+      ..onVideoDetailDispose(heroTag)
       ..clearIfNeeded();
     _subscriptions?.forEach((e) => e.cancel());
     _subscriptions?.clear();

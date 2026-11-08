@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:PiliPlus/plugin/pl_player/controller.dart';
 import 'package:PiliPlus/services/service_locator.dart';
+import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:audio_session/audio_session.dart';
 
 class AudioSessionHandler {
@@ -13,8 +16,28 @@ class AudioSessionHandler {
   /// 切换「与其他应用同时播放」后重新配置音频会话
   Future<void> reconfigure() async {
     await _session.setActive(false);
-    await _session.configure(const AudioSessionConfiguration.music());
+    await _configureSession();
     await _session.setActive(true);
+  }
+
+  /// [FORK] iOS 开启「与其他应用同时播放」时需要 playback + mixWithOthers，
+  /// 否则锁屏/控制中心不会按可混音应用处理。上游合并时不要覆盖此方法。
+  Future<void> _configureSession() async {
+    if (Platform.isIOS && Pref.mixWithOthers) {
+      await _session.configure(
+        const AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions:
+              AVAudioSessionCategoryOptions.mixWithOthers,
+          avAudioSessionMode: AVAudioSessionMode.defaultMode,
+          avAudioSessionRouteSharingPolicy:
+              AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+        ),
+      );
+    } else {
+      await _session.configure(const AudioSessionConfiguration.music());
+    }
   }
 
   AudioSessionHandler() {
@@ -23,7 +46,7 @@ class AudioSessionHandler {
 
   Future<void> initSession() async {
     _session = await AudioSession.instance;
-    _session.configure(const AudioSessionConfiguration.music());
+    await _configureSession();
 
     _session.interruptionEventStream.listen(_onInterrupted);
 
