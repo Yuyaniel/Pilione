@@ -51,6 +51,9 @@ class UgcIntroController extends CommonIntroController with ReloadMixin {
   late final RxBool expand;
   final RxBool status = true.obs;
 
+  /// 简介面板展示 av 号
+  int get aid => videoDetailCtr.aid;
+
   // up主粉丝数
   final Rx<MemberCardInfoData> userStat = MemberCardInfoData().obs;
   // 关注状态 默认未关注
