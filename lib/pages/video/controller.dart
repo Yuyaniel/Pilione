@@ -1229,39 +1229,66 @@ class VideoDetailController extends GetxController
     }
     final current = data;
     final currentCid = cid.value;
-    final remote = await HighQualityPlayback.request(
-      bvid: bvid,
-      cid: currentCid,
-      localDurationMs: _knownDuration,
+    final targetDesc = VideoQuality.fromCode(
+      Pref.highQualityPlaybackQuality,
+    ).desc;
+    // 与手动解锁一致的三段提示：正在解锁 → 已切换 → 剩余次数
+    await _showUnlockTip(
+      '正在解锁 $targetDesc…',
+      displayTime: const Duration(seconds: 30),
     );
-    // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
-    if (remote == null) return;
-    if (generation != _bgQaGeneration ||
-        isClosed ||
-        !identical(current, data) ||
-        _dataCid != currentCid ||
-        cid.value != currentCid) {
-      return;
+    var switchedQa = 0;
+    try {
+      final remote = await HighQualityPlayback.request(
+        bvid: bvid,
+        cid: currentCid,
+        localDurationMs: _knownDuration,
+      );
+      // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
+      if (remote == null) return;
+      if (generation != _bgQaGeneration ||
+          isClosed ||
+          !identical(current, data) ||
+          _dataCid != currentCid ||
+          cid.value != currentCid) {
+        return;
+      }
+
+      // 只 merge 不替换：低画质档位保留，切换失败可直接回退
+      current.dash?.video?.merge(remote.dash?.video);
+      current.dash?.audio?.merge(remote.dash?.audio);
+
+      final videos = current.dash?.video;
+      if (videos == null || videos.isEmpty) return;
+      final top = videos.map((e) => e.id).reduce(max);
+      final target = Pref.highQualityPlaybackQuality;
+      final qa = target <= top ? target : top;
+      if (qa <= (currentVideoQa.value?.code ?? 0)) return;
+
+      if (!await _switchQualitySilently(qa, generation)) return;
+      switchedQa = qa;
+    } finally {
+      await SmartDialog.dismiss(tag: _quotaTag);
     }
 
-    // 只 merge 不替换：低画质档位保留，切换失败可直接回退
-    current.dash?.video?.merge(remote.dash?.video);
-    current.dash?.audio?.merge(remote.dash?.audio);
-
-    final videos = current.dash?.video;
-    if (videos == null || videos.isEmpty) return;
-    final top = videos.map((e) => e.id).reduce(max);
-    final target = Pref.highQualityPlaybackQuality;
-    final effective = target <= top ? target : top;
-    if (effective <= (currentVideoQa.value?.code ?? 0)) return;
-
-    await _switchQualitySilently(effective, generation);
+    await _showUnlockTip(
+      '已解锁并切换到 ${VideoQuality.fromCode(switchedQa).desc}',
+    );
     // 后台切换同样消耗一次解析，刷新设置页显示的剩余次数
-    unawaited(HighQualityPlayback.refreshRemaining());
+    final remaining = await HighQualityPlayback.refreshRemaining().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => null,
+    );
+    if (remaining != null) {
+      await _showUnlockTip(
+        '今日剩余解析次数 $remaining 次',
+        icon: Icons.data_usage_outlined,
+      );
+    }
   }
 
   /// 静默切画质：隐藏加载指示器、保留播放位置与暂停状态，失败回退。
-  Future<void> _switchQualitySilently(int quality, int generation) async {
+  Future<bool> _switchQualitySilently(int quality, int generation) async {
     final ctrl = plPlayerController;
     final wasPlaying = ctrl.playerStatus.isPlaying;
     final oldPosition = Duration(milliseconds: ctrl.positionInMilliseconds);
@@ -1296,7 +1323,7 @@ class VideoDetailController extends GetxController
       cancelled = generation != _bgQaGeneration || isClosed;
 
       if (cancelled) {
-        return;
+        return false;
       } else if (ok) {
         // 切换期间用户拖过进度：以用户给出的位置为准
         final drift =
@@ -1315,6 +1342,7 @@ class VideoDetailController extends GetxController
           }
           await ctrl.seekTo(oldPosition);
         }
+        return true;
       } else {
         // 回退：恢复原数据源与画质，位置、播放状态保持不变
         currentVideoQa.value = oldQa;
@@ -1331,6 +1359,7 @@ class VideoDetailController extends GetxController
         } catch (_) {
           SmartDialog.showToast('画质切换失败，请点击画面重载');
         }
+        return false;
       }
     } finally {
       // 被接管时不能再写回旧值：新一集可能已经设置了新的 defaultST / 自动播放
