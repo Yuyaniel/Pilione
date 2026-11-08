@@ -1264,6 +1264,7 @@ class VideoDetailController extends GetxController
     await _showUnlockTip(
       '正在解锁 $targetDesc…',
       displayTime: const Duration(seconds: 30),
+      loading: true,
     );
     try {
       final remote = await HighQualityPlayback.request(
@@ -1594,6 +1595,7 @@ class VideoDetailController extends GetxController
   Future<void> _showUnlockTip(
     String msg, {
     Duration displayTime = const Duration(seconds: 5),
+    bool loading = false,
     bool isError = false,
     IconData? icon,
   }) async {
@@ -1609,7 +1611,7 @@ class VideoDetailController extends GetxController
       builder: (context) => _buildUnlockPill(
         context,
         msg,
-        loading: false,
+        loading: loading,
         isError: isError,
         icon: icon,
       ),
