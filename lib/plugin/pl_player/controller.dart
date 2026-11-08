@@ -1338,6 +1338,8 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     Duration? seekTo,
     bool? play,
     bool prefetch = false,
+    // 预读窗口内页面是否被切集 / 改画质 / 关闭接管
+    bool Function()? isCancelled,
   }) async {
     final player = _videoPlayerController;
     if (player == null || _playerCount == 0) return;
@@ -1388,7 +1390,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         if (player.state.playlist.medias.length > beforeLength) {
           // 预读期间旧流仍在播，用户无感
           await Future<void>.delayed(const Duration(milliseconds: 1200));
-          if (!identical(_videoPlayerController, player)) return;
+          // 这 1.2s 内若切集 / 改画质 / 关页，丢弃追加项，
+          // 否则 player.next() 会把新一集切到上一集预读的那条流
+          if (!identical(_videoPlayerController, player) ||
+              (isCancelled?.call() ?? false)) {
+            final last = player.state.playlist.medias.length - 1;
+            if (last > beforeIndex) await player.remove(last);
+            return;
+          }
           // 这 1.2s 里旧流还在往前走，切换点必须取现在的位置，
           // 否则换完会倒回去一小段
           final live = isLive ? null : player.state.position;

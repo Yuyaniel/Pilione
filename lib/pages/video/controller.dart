@@ -1320,6 +1320,7 @@ class VideoDetailController extends GetxController
           seekTo: oldPosition,
           play: wasPlaying,
           prefetch: true,
+          isCancelled: () => generation != _bgQaGeneration || isClosed,
         ).timeout(const Duration(seconds: 15));
         ok = ctrl.dataStatus.value != DataStatus.error;
         seamless = ok;
