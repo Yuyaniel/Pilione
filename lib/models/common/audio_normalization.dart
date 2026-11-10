@@ -82,6 +82,8 @@ mixin AudioNormalizationMixin {
   }
 
   String? _alimiter;
+  Player? _volumePlayer;
+  Future<void> _volumeUpdate = Future.value();
 
   /// mpv 的 volume 属性是三次方曲线（`gain = (volume / 100) ^ 3`），且这层
   /// 增益直接乘在 PCM 样值上：200% 就是 8 倍（+18dB），300% 是 27 倍
@@ -103,22 +105,23 @@ mixin AudioNormalizationMixin {
   Future<void>? setVolumeCapped(Player? player, double volume) {
     assert(volume >= 0);
     if (player == null) return null;
-    final boost = _boostAf(volume);
-    if (boost == null) {
-      if (_alimiter != null) {
-        player.setProperty('af', '');
+    final previous = _volumeUpdate;
+    return _volumeUpdate = () async {
+      // 一次失败不阻止后续调音量，单次调用的错误仍返回给调用方。
+      try {
+        await previous;
+      } catch (_) {}
+      if (!identical(_volumePlayer, player)) {
+        _volumePlayer = player;
         _alimiter = null;
       }
-      return player.setVolume(volume * 100);
-    } else {
-      // 拖动音量时增益连续变化，重建滤镜链开销偏大，
-      // 增益按 0.5dB 取整，值未变化时跳过
+      final boost = _boostAf(volume);
+      await player.setVolume(volume <= 1 ? volume * 100 : 100);
       if (_alimiter != boost) {
-        player.setProperty('af', boost);
+        player.setProperty('af', boost ?? '');
         _alimiter = boost;
       }
-      return player.setVolume(100);
-    }
+    }();
   }
 
   /// [volume] > 1.0 时返回防削波的增益滤镜串，否则返回 null。

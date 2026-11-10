@@ -99,6 +99,9 @@ mixin ReplyLocateMixin<T>
 abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
   ReplyController({int count = -1}) : count = RxInt(count);
 
+  int get oid;
+  int get replyType;
+
   Int64? rootRpId;
   late final RxInt count;
 
@@ -113,7 +116,7 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
   late bool hasUpTop = false;
 
   @override
-  bool? get hasFooter => true;
+  bool get hasFooter => true;
 
   // comment antifraud
   late final _enableCommAntifraud = Pref.enableCommAntifraud;
@@ -161,7 +164,7 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
     final data = response.response as MainListReply;
     count.value = data.subjectControl.count.toInt();
     if (isRefresh) {
-      haneleSubjectControl(data.subjectControl);
+      handleSubjectControl(data.subjectControl);
       if (hasUpTop = data.hasUpTop()) {
         data.replies.insert(0, data.upTop);
       }
@@ -170,7 +173,7 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
       }
     }
 
-    hanelePagination(
+    handlePagination(
       cursor: data.cursor,
       offset: data.paginationReply.nextOffset,
     );
@@ -180,12 +183,12 @@ abstract class ReplyController<R> extends CommonListController<R, ReplyInfo> {
     return false;
   }
 
-  void hanelePagination({required CursorReply cursor, required String offset}) {
+  void handlePagination({required CursorReply cursor, required String offset}) {
+    if (cursor.isEnd || offset.isEmpty || nextOffset == offset) isEnd = true;
     nextOffset = offset;
-    if (cursor.isEnd || offset.isEmpty) isEnd = true;
   }
 
-  void haneleSubjectControl(SubjectControl control) {
+  void handleSubjectControl(SubjectControl control) {
     subjectControl = control;
     upMid = control.upMid;
   }

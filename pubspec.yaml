@@ -17,7 +17,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
 # update when release
-version: 2.1.7+29900672
+version: 2.2.0+1
 
 environment:
   sdk: ">=3.13.0"
@@ -46,7 +46,7 @@ dependencies:
     git:
       url: https://github.com/Starfallan/audio_service_win.git
       ref: main
-  audio_service_mpris: ^1.0.0-beta.2
+  audio_service_mpris: 1.0.0-beta.2
   audio_session:
     git:
       url: https://github.com/bggRGjQaUbCoE/audio_session.git
@@ -139,8 +139,8 @@ dependencies:
       url: https://github.com/bggRGjQaUbCoE/material_design_icons_flutter.git
       ref: const
   material_new_shapes: ^1.0.0
-  # 1.9.0 起移除了 TabBarLayoutCallback / IndicatorPainter / BottomSheetState
-  # 等公共 typedef，dyn_tab_bar.dart、bottom_sheet.dart 依赖它们，故锁定 1.8.0
+  # 锁 1.8.0：material_ui 1.9.0 起删除了本工程依赖的公共 typedef
+  # （TabBarLayoutCallback / IndicatorPainter / BottomSheetState），升级会编译失败
   material_ui: 1.8.0
   media_kit: 1.1.11
   media_kit_libs_video: 1.0.5
@@ -151,6 +151,7 @@ dependencies:
     git:
       url: https://github.com/bggRGjQaUbCoE/flutter_native_device_orientation.git
       ref: master
+  nm: ^0.5.0
   package_info_plus: ^10.1.0
   path: ^1.9.1
   path_parsing: ^1.1.0
@@ -182,11 +183,14 @@ dependencies:
     git:
       url: https://github.com/wgh136/webdav_client.git
       ref: main
+  webview_all_linux: ^1.4.9
+  webview_platform_interface: ^1.4.9
   win32: ^6.3.0
   window_manager: ^0.6.0
 
 dependency_overrides:
-  # 国内镜像的 material_ui 1.8.0 与 pub.dev 内容不一致（缺 typedef），必须走 pub.dev
+  # 国内镜像的 material_ui 1.8.0 与 pub.dev 内容不一致（缺公共 typedef），
+  # 这里强制从 pub.dev 取，否则 analyze 会报大量 Undefined class
   material_ui:
     hosted:
       name: material_ui

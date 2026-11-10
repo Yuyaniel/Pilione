@@ -70,7 +70,7 @@
 
 > 这个工程不是 `flutter build apk` 就能直接过的，下面几步缺一不可。
 
-1. **Flutter 版本**：`3.47.7`（Dart 3.13.5）
+1. **Flutter 版本**：`3.47.9`（Dart 3.13.7）
 2. **必须打补丁**：工程把一批 Flutter 框架私有类型改成了公开（如 `StandardBottomSheet`、`TabBarState`），需先执行：
 
    ```powershell
