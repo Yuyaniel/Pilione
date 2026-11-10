@@ -21,7 +21,7 @@ version: 2.1.7+29900672
 
 environment:
   sdk: ">=3.13.0"
-  flutter: 3.47.7
+  flutter: 3.47.9
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -139,7 +139,9 @@ dependencies:
       url: https://github.com/bggRGjQaUbCoE/material_design_icons_flutter.git
       ref: const
   material_new_shapes: ^1.0.0
-  material_ui: ^1.0.0
+  # 1.9.0 起移除了 TabBarLayoutCallback / IndicatorPainter / BottomSheetState
+  # 等公共 typedef，dyn_tab_bar.dart、bottom_sheet.dart 依赖它们，故锁定 1.8.0
+  material_ui: 1.8.0
   media_kit: 1.1.11
   media_kit_libs_video: 1.0.5
   media_kit_video: 1.2.5
@@ -184,6 +186,12 @@ dependencies:
   window_manager: ^0.6.0
 
 dependency_overrides:
+  # 国内镜像的 material_ui 1.8.0 与 pub.dev 内容不一致（缺 typedef），必须走 pub.dev
+  material_ui:
+    hosted:
+      name: material_ui
+      url: https://pub.dev
+    version: 1.8.0
   clipboard:
     git:
       url: https://github.com/dongfengweixiao/flutter_clipboard.git
