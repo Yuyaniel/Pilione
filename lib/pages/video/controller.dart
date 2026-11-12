@@ -448,6 +448,8 @@ class VideoDetailController extends GetxController
     }
     data = PlayUrlModel(timeLength: entry.totalTimeMilli);
     _dataCid = cid.value;
+    // 离线缓存 / 本地文件没有接口档位数据，不存在可解锁的档位
+    _hasLockedQualityTier = false;
     _setVideoHeight();
   }
 
@@ -465,10 +467,14 @@ class VideoDetailController extends GetxController
       }
 
       // 开了「起播后自动切换」时，全屏升档交给后台任务，
-      // 避免先升默认画质、再切目标档的连续两次重开
+      // 避免先升默认画质、再切目标档的连续两次重开。
+      // 该视频没有大会员专属（本地拿不到）的档位时不走这条分支：
+      // 没有可解锁的目标，弹「正在解锁」只会干扰，还白跑一次远端请求；
+      // 落到下面的本地升档逻辑（半屏画质 → 全屏画质）即可。
       if (Pref.highQualityPlaybackOnStartup &&
           HighQualityPlayback.configured &&
-          !HighQualityPlayback.isUnlocked(cid.value)) {
+          !HighQualityPlayback.isUnlocked(cid.value) &&
+          _hasUnlockableQuality) {
         _armBackgroundHighQuality();
         return;
       }
@@ -1106,6 +1112,19 @@ class VideoDetailController extends GetxController
   /// [data] 对应的 cid，用于判断 data 是否属于当前这一集
   int? _dataCid;
 
+  /// 当前视频是否存在需要解锁的档位（大会员专属 / 登录限制）。
+  ///
+  /// 在 [_queryVideoUrl] 拿到 playurl 时按接口档位快照一次，全屏切换路径据此
+  /// 跳过「没有可解锁档位」的远端请求与「正在解锁」提示；
+  /// 只看接口数据，不做时长/名称之类的启发式判断。
+  /// null = playurl 尚未返回，按下限（不解锁）处理。
+  bool? _hasLockedQualityTier;
+
+  /// 全屏切换是否值得尝试解锁：仅当 [data] 属于当前这一集时才可信，
+  /// 切集后 data 还是上一集的，此时返回 false（跳过解锁是安全侧）。
+  bool get _hasUnlockableQuality =>
+      _dataCid == cid.value && (_hasLockedQualityTier ?? false);
+
   /// [data] 是 late 字段，且切集时不会清空，直接读可能拿到上一集的时长，
   /// 会让「短流保护」误判成试看片段，因此只在 cid 匹配时返回。
   int? get _knownDuration {
@@ -1202,6 +1221,8 @@ class VideoDetailController extends GetxController
 
   /// 进入全屏：开始观察缓冲，满足「缓冲 ≥5s 且不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
+    // 该视频没有可解锁的档位：不请求、不提示（起播即全屏的路径据此跳过）
+    if (!_hasUnlockableQuality) return;
     // 手动解锁 / 后台切源进行中，别叠加第二次重开
     if (_unlocking || _bgQaSwitching) return;
     final pendingCid = _bgQaPendingCid;
@@ -1772,6 +1793,10 @@ class VideoDetailController extends GetxController
     if (result case Success(:final response)) {
       data = response;
       _dataCid = cid.value;
+      // 在补画质 / 解锁 merge 之前快照：本条视频是否真有可解锁的高档位。
+      // 之后 dash.video 会被补画质和远端解锁合并，档位差集会变小甚至归零，
+      // 那属于「已经拿到」，不代表这条视频本来没有可解锁档位。
+      _hasLockedQualityTier = response.hasLockedQualityTier;
       // 补画质不阻塞首帧：后台补齐后直接 merge 进 data.dash
       if (data.dash != null) {
         unawaited(_supplementVideoQualities().catchError((Object e, StackTrace s) {

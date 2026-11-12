@@ -78,6 +78,31 @@ class PlayUrlModel {
     return best;
   }
 
+  /// 是否存在「接口下发、当前账号却拿不到」的档位（大会员专属 / 登录限制）。
+  ///
+  /// `supportFormats` 列出该视频支持的**全部**档位（含需要大会员的档位，
+  /// 画质菜单里它们被标灰），而 `dash.video` 只含当前账号实际可播的档位；
+  /// 两者之差就是「需要额外解锁才能拿到」的档位。
+  /// 视频本身没有这些档位时（例如最高只压到 720P），差集为空。
+  ///
+  /// 判断只依赖接口下发的档位数据，不依赖时长、清晰度名称之类的启发式。
+  bool get hasLockedQualityTier {
+    final formats = supportFormats;
+    final videos = dash?.video;
+    if (formats == null || formats.isEmpty) return false;
+    // dash 缺失或为空时无法判断「拿得到哪些」，按「无可解锁档位」处理，
+    // 宁可跳过解锁也不要为无档位的视频空跑一次远端请求
+    if (videos == null || videos.isEmpty) return false;
+    final available = videos.availableVideoQualities;
+    for (final item in formats) {
+      final quality = item.quality;
+      if (quality != null && !available.contains(quality)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   PlayUrlModel.fromJson(Map<String, dynamic> json) {
     from = json['from'];
     result = json['result'];
