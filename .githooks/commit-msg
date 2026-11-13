@@ -1,0 +1,22 @@
+#!/bin/sh
+# 防止提交信息里的裸 #N 被 GitHub 解析成上游 Starfallan/PiliNara 的 issue 引用。
+#
+# 本仓库是 PiliNara 的公开 fork。提交正文出现 "#430" 这类写法时，GitHub 会在
+# 上游 issue 的时间线里生成一条 "referenced this issue" 事件，对所有人可见，
+# 而且事后 force-push 也删不掉。改写成 "issue 430" 是纯文本，不会被自动链接。
+#
+# 安装（克隆后执行一次）：
+#     git config core.hooksPath .githooks
+#
+# 卸载：
+#     git config --unset core.hooksPath
+
+msgfile="$1"
+[ -f "$msgfile" ] || exit 0
+
+# 跳过注释行，只看真正会写进历史的正文
+if grep -vE '^#' "$msgfile" | grep -qE '#[0-9]+'; then
+    sed -i -E 's/#([0-9]+)/issue \1/g' "$msgfile"
+    echo "[commit-msg] 已把提交信息里的 #N 改写为 issue N，避免在上游 issue 里产生引用。" >&2
+fi
+exit 0

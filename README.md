@@ -166,6 +166,14 @@
    $env:NO_PROXY="pub.dev,pub.flutter-io.cn,storage.flutter-io.cn,localhost,127.0.0.1,::1"
    ```
 
+8. **提交钩子**（克隆后执行一次）：
+
+   ```powershell
+   git config core.hooksPath .githooks
+   ```
+
+   本仓库是 [PiliNara](https://github.com/Starfallan/PiliNara) 的公开 fork，提交信息里写裸编号（如 `#430`）会被 GitHub 自动解析成**上游仓库**的 issue 引用，在上游 issue 的时间线里留下对所有人可见的 `referenced` 记录，且事后 `force-push` 也无法撤销。`.githooks/commit-msg` 会把 `#123` 自动改写成 `issue 123`，纯文本不会再被自动链接。
+
 ---
 
 ## 声明
