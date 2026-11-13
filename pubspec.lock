@@ -277,7 +277,7 @@ packages:
     description:
       path: "packages/chat_bottom_container"
       ref: dev
-      resolved-ref: d2f7b8df63126d9f347c1320de10db15deab06db
+      resolved-ref: a39a5b2a0d108c33608fabd054ea97334d21ad6f
       url: "https://github.com/bggRGjQaUbCoE/flutter_chat_packages.git"
     source: git
     version: "0.5.2"
@@ -1368,7 +1368,7 @@ packages:
     source: hosted
     version: "1.0.0"
   nm:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: nm
       sha256: "2c9aae4127bdc8993206464fcc063611e0e36e72018696cd9631023a31b24254"
@@ -2047,6 +2047,22 @@ packages:
       url: "https://github.com/wgh136/webdav_client.git"
     source: git
     version: "1.2.2"
+  webview_all_linux:
+    dependency: "direct main"
+    description:
+      name: webview_all_linux
+      sha256: "5ed68a90df7aac70d0ab31e6dce7c2eb1057a3182ab02bca113a134e4d8735f4"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "1.5.0"
+  webview_platform_interface:
+    dependency: "direct main"
+    description:
+      name: webview_platform_interface
+      sha256: "28ab96929ac123a1afc5d2b23efac6756298b1a21c6d095e08a1976e75246ce9"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "1.5.0"
   win32:
     dependency: "direct main"
     description:

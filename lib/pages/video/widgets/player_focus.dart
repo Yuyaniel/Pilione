@@ -104,6 +104,7 @@ class PlayerFocus extends StatelessWidget {
   }
 
   bool _handleKey(BuildContext context, KeyEvent event) {
+    if (plPlayerController.editingFullscreenLayout) return false;
     final key = event.logicalKey;
 
     final isKeyQ = key == LogicalKeyboardKey.keyQ;
@@ -133,6 +134,27 @@ class PlayerFocus extends StatelessWidget {
     final isArrowUp = key == LogicalKeyboardKey.arrowUp;
     if (isArrowUp || key == LogicalKeyboardKey.arrowDown) {
       _updateVolume(event, isIncrease: isArrowUp);
+      return true;
+    }
+
+    if (key == .arrowLeft) {
+      if (!plPlayerController.isLive) {
+        if (event is KeyDownEvent) {
+          if (hasPlayer) {
+            plPlayerController
+              ..longPressTimer?.cancel()
+              ..longPressTimer = Timer.periodic(
+                const Duration(milliseconds: 200),
+                plPlayerController.multiBackwardStart,
+              );
+          }
+        } else if (event is KeyUpEvent) {
+          plPlayerController.cancelLongPressTimer();
+          if (hasPlayer) {
+            plPlayerController.multiBackwardEnd();
+          }
+        }
+      }
       return true;
     }
 
@@ -257,14 +279,6 @@ class PlayerFocus extends StatelessWidget {
         }
 
         switch (key) {
-          case LogicalKeyboardKey.arrowLeft:
-            if (hasPlayer) {
-              plPlayerController.onBackward(
-                plPlayerController.fastForBackwardDuration,
-              );
-            }
-            return true;
-
           case LogicalKeyboardKey.keyW:
             if (HardwareKeyboard.instance.isMetaPressed) {
               return true;

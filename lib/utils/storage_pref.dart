@@ -16,7 +16,7 @@ import 'package:PiliPlus/models/common/member/tab_type.dart';
 import 'package:PiliPlus/models/common/mine_tab_type.dart';
 import 'package:PiliPlus/models/common/msg/msg_unread_type.dart';
 import 'package:PiliPlus/models/common/nav_bar_config.dart';
-import 'package:PiliPlus/models/common/rcmd_mode.dart';
+import 'package:PiliPlus/models/common/rcmd_source.dart';
 import 'package:PiliPlus/models/common/reply/reply_sort_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/skip_type.dart';
@@ -24,19 +24,18 @@ import 'package:PiliPlus/models/common/super_chat_time_type.dart';
 import 'package:PiliPlus/models/common/super_chat_type.dart';
 import 'package:PiliPlus/models/common/super_resolution_type.dart';
 import 'package:PiliPlus/models/common/theme/theme_type.dart';
-import 'package:PiliPlus/models/common/video/audio_quality.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/common/video/cdn_type.dart';
-import 'package:PiliPlus/models/common/video/live_quality.dart';
 import 'package:PiliPlus/models/common/video/subtitle_pref_type.dart';
 import 'package:PiliPlus/models/common/video/video_decode_type.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
 import 'package:PiliPlus/models/user/danmaku_rule.dart';
 import 'package:PiliPlus/models/user/info.dart';
-import 'package:PiliPlus/pages/setting/pages/fullscreen_sc_size.dart'
+import 'package:PiliPlus/pages/setting/pages/fullscreen_sc.dart'
     show kFullScreenSCWidth;
 import 'package:PiliPlus/plugin/pl_player/models/audio_output_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/bottom_progress_behavior.dart';
 import 'package:PiliPlus/plugin/pl_player/models/fullscreen_mode.dart';
+import 'package:PiliPlus/plugin/pl_player/models/fullscreen_layout.dart';
 import 'package:PiliPlus/plugin/pl_player/models/hwdec_type.dart';
 import 'package:PiliPlus/plugin/pl_player/models/play_repeat.dart';
 import 'package:PiliPlus/utils/device_utils.dart';
@@ -338,16 +337,18 @@ abstract final class Pref {
 
   static List<Pair<SegmentType, SkipType>> get blockSettings {
     final list = _setting.get(SettingBoxKey.blockSettings) as List?;
-    if (list == null || list.length != SegmentType.values.length) {
+    if (list == null || list.length > SegmentType.values.length) {
       return SegmentType.values
           .map((i) => Pair(first: i, second: SkipType.skipOnce))
           .toList();
     }
     return SegmentType.values
         .map(
-          (item) => Pair(
+          (item) => Pair<SegmentType, SkipType>(
             first: item,
-            second: SkipType.values[list[item.index]],
+            second: item.index < list.length
+                ? .values[list[item.index]]
+                : .skipOnce,
           ),
         )
         .toList();
@@ -527,14 +528,33 @@ abstract final class Pref {
   static bool get appRcmd =>
       _setting.get(SettingBoxKey.appRcmd, defaultValue: true);
 
-  /// 推荐流模式，首次读取时从旧 key appRcmd 迁移
-  static RcmdMode get rcmdMode {
-    final index = _setting.get(SettingBoxKey.rcmdMode);
-    if (index != null) {
-      return RcmdMode.values.elementAtOrNull(index) ?? RcmdMode.app;
+  static List<RcmdSource> get rcmdSources {
+    final stored = _setting.get(SettingBoxKey.rcmdSources);
+    if (stored is List) {
+      final sources = <RcmdSource>[];
+      for (final name in stored) {
+        final source = RcmdSource.values.where((e) => e.name == name).firstOrNull;
+        if (source != null && !sources.contains(source)) sources.add(source);
+      }
+      if (sources.isNotEmpty) return sources;
     }
-    // 旧版迁移：appRcmd true→App, false→Web
-    return appRcmd ? RcmdMode.app : RcmdMode.web;
+    // 本地旧模式的 2 是 App+Web，上游旧来源的 2 是 PC。
+    switch (_setting.get(SettingBoxKey.rcmdMode)) {
+      case 0: return [RcmdSource.app];
+      case 1: return [RcmdSource.web];
+      case 2: return [RcmdSource.app, RcmdSource.web];
+    }
+    final legacy = _setting.get(SettingBoxKey.rcmdSource);
+    if (legacy is int && legacy >= 0 && legacy < RcmdSource.values.length) {
+      return [RcmdSource.values[legacy]];
+    }
+    return [appRcmd ? RcmdSource.app : RcmdSource.web];
+  }
+
+  static Future<void> setRcmdSources(List<RcmdSource> sources) async {
+    if (sources.isEmpty) return;
+    await _setting.put(SettingBoxKey.rcmdSources,
+        sources.map((e) => e.name).toSet().toList());
   }
 
   static bool get removeBlockedRcmd =>
@@ -857,6 +877,9 @@ abstract final class Pref {
   static bool get showMedal =>
       _setting.get(SettingBoxKey.showMedal, defaultValue: true);
 
+  static bool get showCacheBtn =>
+      _setting.get(SettingBoxKey.showCacheBtn, defaultValue: true);
+
   static bool get showRcmdReason =>
       _setting.get(SettingBoxKey.showRcmdReason, defaultValue: true);
 
@@ -939,6 +962,31 @@ abstract final class Pref {
   static bool get showFSActionItem =>
       _setting.get(SettingBoxKey.showFSActionItem, defaultValue: true);
 
+  static bool get hasFullscreenLayout =>
+      _setting.containsKey(SettingBoxKey.fullscreenLayout);
+
+  static FullscreenLayout get fullscreenLayout {
+    final legacy = FullscreenLayout.legacy(
+      isMobile: PlatformUtils.isMobile,
+      showActions: showFSActionItem,
+      showLock: showFsLockBtn,
+      showScreenshot: showFsScreenshotBtn,
+      lockOnRight: showFsLockBtnRight,
+      showBattery: showBatteryLevel,
+      showOnline: enableOnlineTotal,
+      showDmCount: enableDmCount,
+    );
+    return FullscreenLayout.fromJson(
+      _setting.get(SettingBoxKey.fullscreenLayout),
+      fallback: hasFullscreenLayout
+          ? FullscreenLayout.defaults(isMobile: PlatformUtils.isMobile)
+          : legacy,
+    );
+  }
+
+  static Future<void> saveFullscreenLayout(FullscreenLayout layout) =>
+      _setting.put(SettingBoxKey.fullscreenLayout, layout.toJson());
+
   static bool get enableShrinkVideoSize =>
       _setting.get(SettingBoxKey.enableShrinkVideoSize, defaultValue: true);
 
@@ -955,6 +1003,9 @@ abstract final class Pref {
     SettingBoxKey.enableSlideVolumeBrightness,
     defaultValue: true,
   );
+
+  static bool get enableScrollVolume =>
+      _setting.get(SettingBoxKey.enableScrollVolume, defaultValue: true);
 
   static bool get enableSlideFS =>
       _setting.get(SettingBoxKey.enableSlideFS, defaultValue: true);
@@ -1243,6 +1294,8 @@ abstract final class Pref {
   static double get sideBarThreshold =>
       (_setting.get(SettingBoxKey.sideBarThreshold, defaultValue: 600.0) as num)
           .toDouble();
+  static bool get hideSideBarLabel =>
+      _setting.get(SettingBoxKey.hideSideBarLabel, defaultValue: false);
 
   static bool get dynamicsShowAllFollowedUp => _setting.get(
     SettingBoxKey.dynamicsShowAllFollowedUp,
@@ -1319,8 +1372,6 @@ abstract final class Pref {
     SettingBoxKey.autoLikeWatchedPercent,
     defaultValue: 50,
   );
-
-
 
   static int get customColor =>
       _setting.get(SettingBoxKey.customColor, defaultValue: 0);
@@ -1458,34 +1509,15 @@ abstract final class Pref {
     };
   }
 
-  /// 直播流无后向缓冲，全部给前向（mpv 的 --demuxer-max-bytes 与
-  /// --demuxer-max-back-bytes）。未单独设置时保持旧实现的默认值：
-  /// 前向缓冲为 [bufferSize] 的两倍且不限制时长。
-  static Map<String, String> initLiveBuffer() => buildLiveBuffer(
-    sizeMb: liveBufferSize,
-    sec: liveBufferSec,
-    fallbackSizeMb: bufferSize,
-  );
-
-  /// 构造直播流使用的 mpv 额外参数。
-  ///
-  /// [sizeMb] 为前向缓冲大小（MB），小于等于 0 时使用
-  /// [fallbackSizeMb]（缺省为 [bufferSize]）的两倍；
-  /// [sec] 为缓冲时长上限（s），小于等于 0 时不限制。
-  @visibleForTesting
-  static Map<String, String> buildLiveBuffer({
-    double sizeMb = 0,
-    double sec = 0,
-    double? fallbackSizeMb,
-  }) {
-    final effectiveSizeMb = sizeMb > 0
-        ? sizeMb
-        : (fallbackSizeMb ?? bufferSize) * 2;
-    final buffer = <String, String>{
+  static Map<String, String> initLiveBuffer() {
+    final liveBufMb = liveBufferSize;
+    final effectiveSizeMb = liveBufMb > 0 ? liveBufMb : bufferSize * 2;
+    final buffer = {
       'cache': 'yes',
       'demuxer-max-bytes': (effectiveSizeMb * 0x100000).toStringAsFixed(0),
       'demuxer-max-back-bytes': '0',
     };
+    final sec = Pref.liveBufferSec;
     if (sec > 0) {
       buffer['cache-secs'] = sec.toStringAsFixed(3);
       buffer['demuxer-hysteresis-secs'] = (sec / 1.5).toStringAsFixed(3);
@@ -1600,20 +1632,15 @@ abstract final class Pref {
 
     value = _localCache.get(SettingBoxKey.buvid);
     if (value != null) {
-      _setting
-          .put(SettingBoxKey.buvid, value)
-          .whenComplete(() => _localCache.delete(SettingBoxKey.buvid));
-      return value;
-    }
-
-    if (value == null) {
-      buvid = value = LoginUtils.generateBuvid();
+      _setting.put(SettingBoxKey.buvid, value);
+      _localCache.delete(SettingBoxKey.buvid);
+    } else {
+      value = LoginUtils.generateBuvid();
+      GStorage.setting.put(SettingBoxKey.buvid, value);
     }
 
     return value;
   }
-
-  static set buvid(String value) => _setting.put(SettingBoxKey.buvid, value);
 
   static bool get showMemberShop =>
       _setting.get(SettingBoxKey.showMemberShop, defaultValue: false);
@@ -1635,15 +1662,14 @@ abstract final class Pref {
     defaultValue: kFullScreenSCWidth,
   );
 
-  static double get fullScreenSCOpacity => _setting.get(
-    SettingBoxKey.fullScreenSCOpacity,
-    defaultValue: 1.0,
-  );
+  static bool get enableFullScreenSC =>
+      _setting.get(SettingBoxKey.enableFullScreenSC, defaultValue: true);
 
-  static double get fullScreenSCScale => _setting.get(
-    SettingBoxKey.fullScreenSCScale,
-    defaultValue: 1.0,
-  );
+  static double get fullScreenSCOpacity =>
+      _setting.get(SettingBoxKey.fullScreenSCOpacity, defaultValue: 1.0);
+
+  static double get fullScreenSCScale =>
+      _setting.get(SettingBoxKey.fullScreenSCScale, defaultValue: 1.0);
 
   static bool get minimizeOnExit =>
       _setting.get(SettingBoxKey.minimizeOnExit, defaultValue: true);
@@ -1913,4 +1939,13 @@ abstract final class Pref {
 
   static bool get filterIntro =>
       _setting.get(SettingBoxKey.filterIntro, defaultValue: false);
+
+  static int get foldDepth =>
+      _setting.get(SettingBoxKey.foldDepth, defaultValue: 0);
+
+  static bool get showRefreshFAB =>
+      _setting.get(SettingBoxKey.showRefreshFAB, defaultValue: true);
+
+  static bool get cachePlayInfo =>
+      _setting.get(SettingBoxKey.cachePlayInfo, defaultValue: true);
 }

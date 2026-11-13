@@ -195,4 +195,41 @@ void main() {
       expect(s, matches(RegExp(r'^[0-9a-f]{32}$')));
     });
   });
+
+  group('hasLockedQualityTier', () {
+    test('false when every supported tier is already playable', () {
+      // 最高只到 1080P 的普通视频：接口档位 = 实际可播档位
+      final playUrl = _playUrl([16, 32, 64, 80]);
+      expect(playUrl.hasLockedQualityTier, isFalse);
+    });
+
+    test('true when the API lists a tier the account cannot play', () {
+      // 1080P60 / 4K 只出现在 support_formats 里，dash 里没有 → 需解锁
+      final playUrl = PlayUrlModel.fromJson({
+        'dash': {
+          'duration': 0,
+          'video': [
+            {'id': 80, 'codecs': VideoDecodeFormatType.AV1.codes.first},
+          ],
+        },
+        'accept_quality': [80],
+        'support_formats': [
+          {'quality': 120, 'codecs': VideoDecodeFormatType.AV1.codes},
+          {'quality': 116, 'codecs': VideoDecodeFormatType.AV1.codes},
+          {'quality': 80, 'codecs': VideoDecodeFormatType.AV1.codes},
+        ],
+      });
+      expect(playUrl.hasLockedQualityTier, isTrue);
+    });
+
+    test('false without dash or formats', () {
+      expect(PlayUrlModel().hasLockedQualityTier, isFalse);
+      expect(
+        PlayUrlModel(
+          supportFormats: [FormatItem(quality: 120)],
+        ).hasLockedQualityTier,
+        isFalse,
+      );
+    });
+  });
 }

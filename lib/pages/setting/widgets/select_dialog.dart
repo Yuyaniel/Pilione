@@ -4,7 +4,8 @@ class SelectDialog<T> extends StatelessWidget {
   final T? value;
   final String title;
   final List<(T, String)> values;
-  final Widget? Function(BuildContext, int, T)? subtitleBuilder;
+  final Widget? Function(BuildContext context, int index, T value)?
+  subtitleBuilder;
   final bool toggleable;
 
   const SelectDialog({
@@ -47,10 +48,7 @@ class SelectDialog<T> extends StatelessWidget {
                     toggleable: toggleable,
                     dense: true,
                     value: item.$1,
-                    title: Text(
-                      item.$2,
-                      style: titleMedium,
-                    ),
+                    title: Text(item.$2, style: titleMedium),
                     subtitle: subtitle,
                     isThreeLine: subtitle != null,
                   );

@@ -118,7 +118,7 @@ class DynamicsController
   Future<void> _showRefreshFor(DynamicsTabController? ctr) {
     final refreshState = ctr?.refreshKey.currentState;
     if (refreshState != null) {
-      return refreshState.show();
+      return ctr!.showRefresh();
     }
     return Future.wait([
       singleRefresh(),
@@ -144,9 +144,9 @@ class DynamicsController
           scrollController.animToTop();
         }
         EasyThrottle.throttle(
-          'topOrRefresh',
+          topOrRefreshThrottleKey,
           const Duration(milliseconds: 500),
-          onRefresh,
+          showRefresh,
         );
       } else {
         animateToTop();

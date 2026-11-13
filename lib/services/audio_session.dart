@@ -7,23 +7,20 @@ import 'package:audio_session/audio_session.dart';
 
 class AudioSessionHandler {
   late AudioSession _session;
-  bool _shouldResume = false;
+  late final Future<void> _ready;
+  void Function()? _resume;
 
-  Future<bool> setActive(bool active) {
+  AudioSessionHandler() {
+    _ready = initSession();
+  }
+
+  Future<bool> setActive(bool active) async {
+    await _ready;
     return _session.setActive(active);
   }
 
-  /// 切换「与其他应用同时播放」后重新配置音频会话
-  Future<void> reconfigure() async {
-    await _session.setActive(false);
-    await _configureSession();
-    await _session.setActive(true);
-  }
-
-  /// [FORK] iOS 开启「与其他应用同时播放」时需要 playback + mixWithOthers，
-  /// 否则锁屏/控制中心不会按可混音应用处理。上游合并时不要覆盖此方法。
   Future<void> _configureSession() async {
-    if (Platform.isIOS && Pref.mixWithOthers) {
+    if (Pref.mixWithOthers && Platform.isIOS) {
       await _session.configure(
         const AudioSessionConfiguration(
           avAudioSessionCategory: AVAudioSessionCategory.playback,
@@ -40,54 +37,67 @@ class AudioSessionHandler {
     }
   }
 
-  AudioSessionHandler() {
-    initSession();
+  Future<void> reconfigure() async {
+    await _ready;
+    _resume = null;
+    await _session.setActive(false);
+    await _configureSession();
   }
 
   Future<void> initSession() async {
     _session = await AudioSession.instance;
     await _configureSession();
-
     _session.interruptionEventStream.listen(_onInterrupted);
-
-    // 耳机拔出暂停
     _session.becomingNoisyEventStream.listen((_) {
-      videoPlayerServiceHandler?.onPause?.call() ??
-          PlPlayerController.pauseIfExists();
+      _resume = null;
+      final onPause = videoPlayerServiceHandler?.onPause;
+      if (onPause != null) {
+        onPause();
+      } else {
+        PlPlayerController.pauseIfExists();
+      }
     });
   }
 
   void _onInterrupted(AudioInterruptionEvent event) {
+    final handler = videoPlayerServiceHandler;
+    final player = PlPlayerController.instance;
+    if (event.type == AudioInterruptionType.duck) {
+      if (handler?.isPlaying == null && player != null &&
+          (!event.begin || player.playerStatus.isPlaying)) {
+        player.handleDuck(event.begin);
+      }
+      return;
+    }
     if (event.begin) {
-      final player = PlPlayerController.instance;
-      switch (event.type) {
-        case .duck:
-          if (player != null && player.playerStatus.isPlaying) {
-            player.setVolume(player.volume.value * 0.5, showIndicator: false);
+      if (Pref.mixWithOthers &&
+          (event.type == AudioInterruptionType.pause || Platform.isAndroid)) {
+        return;
+      }
+      final isAudioPlaying = handler?.isPlaying;
+      if (isAudioPlaying != null) {
+        if (isAudioPlaying()) {
+          final onPlay = handler!.onPlay;
+          _resume = () {
+            if (identical(videoPlayerServiceHandler?.onPlay, onPlay)) onPlay?.call();
+          };
+          handler.onPause?.call();
+        }
+      } else if (player != null && player.playerStatus.isPlaying) {
+        final owner = PlPlayerController.playOwner;
+        _resume = () {
+          if (identical(PlPlayerController.instance, player) &&
+              PlPlayerController.playOwner == owner &&
+              videoPlayerServiceHandler?.isPlaying == null) {
+            player.play();
           }
-        case .pause:
-        case .unknown:
-          if (videoPlayerServiceHandler?.isPlaying?.call() == true) {
-            _shouldResume = true;
-            videoPlayerServiceHandler?.onPause?.call();
-          } else if (player != null && player.playerStatus.isPlaying) {
-            _shouldResume = true;
-            player.pause(isInterrupt: true);
-          }
+        };
+        player.pause(isInterrupt: true);
       }
     } else {
-      switch (event.type) {
-        case .duck:
-          final player = PlPlayerController.instance;
-          player?.setVolume(player.volume.value * 2, showIndicator: false);
-        case .pause:
-          if (_shouldResume) {
-            _shouldResume = false;
-            videoPlayerServiceHandler?.onPlay?.call() ??
-                PlPlayerController.instance?.play();
-          }
-        case .unknown:
-      }
+      final resume = _resume;
+      _resume = null;
+      if (event.type == AudioInterruptionType.pause) resume?.call();
     }
   }
 }

@@ -224,7 +224,7 @@ class AudioController extends GetxController
   Future<void> onPlay() async {
     final p = player;
     if (p == null) return;
-    // 先申请音频焦点再播放，避免起播瞬间被系统压掉音量
+    // [FORK] 先申请音频焦点再播放，避免起播瞬间被系统压掉音量
     await audioSessionHandler?.setActive(true);
     await p.play();
   }
@@ -425,7 +425,9 @@ class AudioController extends GetxController
     // >100% 的音量走 af 增益+限幅，避免直接放大 mpv volume 导致削波
     await setVolumeCapped(
       player,
-      PlatformUtils.isDesktop ? desktopVolume.value : Pref.playerVolume / 100,
+      PlatformUtils.isDesktop
+          ? desktopVolume.value
+          : (Pref.enableAppVolume ? 1.0 : Pref.playerVolume / 100),
     );
     final stream = player!.stream;
     _subscriptions = [
@@ -841,17 +843,20 @@ class AudioController extends GetxController
       ..onPause = null
       ..isPlaying = null
       ..reset();
-    videoPlayerServiceHandler
-      ?..onPlay = null
-      ..onPause = null
-      ..onSeek = null
-      ..onSkipToNext = null
-      ..onSkipToPrevious = null
-      ..isPlaying = null
-      // [FORK] 本地音频页 tag 来自 Get.arguments['heroTag']，
-      // 不能用 hashCode，否则 onVideoDetailDispose 永远匹配不到而跳过清理。
-      ..onVideoDetailDispose(heroTag)
-      ..clearIfNeeded();
+    final handler = videoPlayerServiceHandler;
+    // [FORK] 本地音频页 tag 来自 Get.arguments['heroTag']，
+    // 不能用 hashCode，否则 onVideoDetailDispose 永远匹配不到而跳过清理。
+    if (handler?.onPlay == onPlay) {
+      handler!
+        ..onPlay = null
+        ..onPause = null
+        ..onSeek = null
+        ..onSkipToNext = null
+        ..onSkipToPrevious = null
+        ..isPlaying = null
+        ..onVideoDetailDispose(heroTag)
+        ..clearIfNeeded();
+    }
     _subscriptions?.forEach((e) => e.cancel());
     _subscriptions?.clear();
     _subscriptions = null;

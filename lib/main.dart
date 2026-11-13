@@ -37,7 +37,6 @@ import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/theme_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
-import 'package:audio_service_mpris/audio_service_mpris.dart';
 import 'package:catcher_2/catcher_2.dart';
 import 'package:collection/collection.dart';
 import 'package:dynamic_color/dynamic_color.dart' show DynamicColorPlugin;
@@ -49,6 +48,7 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:nativeapi/nativeapi.dart' as nativeapi show Size, Rectangle;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_brightness_platform_interface/screen_brightness_platform_interface.dart';
@@ -254,17 +254,7 @@ void main() async {
       );
     }
     await setupServiceLocator();
-  } else if (Platform.isMacOS) {
-    await setupServiceLocator();
-  } else if (Platform.isLinux) {
-    AudioServiceMpris.init(
-      identity: Constants.appName,
-      canControl: true,
-      canPlay: true,
-      canPause: true,
-      canGoNext: true,
-      canGoPrevious: true,
-    );
+  } else if (Platform.isMacOS || Platform.isLinux) {
     await setupServiceLocator();
   }
 
@@ -275,7 +265,7 @@ void main() async {
   SmartDialog.config.toast = SmartConfigToast(displayType: .onlyRefresh);
 
   // ESC 全平台注册：平板/手机外接键盘也可用（PageRoute 默认不消费 escape）
-  FocusManager.instance.addEarlyKeyEventHandler(_onKeyEvent);
+  FocusManager.instance.addEarlyKeyEventHandler(onAppKeyEvent);
 
   if (PlatformUtils.isMobile) {
     SystemChrome.setEnabledSystemUIMode(.edgeToEdge);
@@ -337,13 +327,21 @@ void main() async {
   if (PlatformUtils.isDesktop) {
     final window = WindowManager.instance.getCurrent();
     if (window != null) {
+      final showTitleBar = Pref.showWindowTitleBar;
+      // macOS 隐藏标题栏时改用 contentUnderTitleBar，保持窗口可拖动
+      final useContentUnderTitleBar = Platform.isMacOS && !showTitleBar;
+      final (nativeapi.Size minSize, nativeapi.Rectangle bounds) =
+          calcWindowBounds();
       window
-        ..titleBarStyle = Pref.showWindowTitleBar ? .normal : .hidden
+        ..titleBarStyle = useContentUnderTitleBar || showTitleBar
+            ? .normal
+            : .hidden
         ..isWindowControlButtonsVisible = true
-        ..bounds = calcWindowBounds()
-        ..minimumSize = DeviceUtils.desktopMinSize
+        ..bounds = bounds
+        ..minimumSize = minSize
         ..isVisibleInTaskbar = true
         ..title = Constants.appName;
+      if (useContentUnderTitleBar) window.setContentUnderTitleBar(true);
       if (Pref.isWindowMaximized) window.maximize();
       void show([_]) => window
         ..focus()
@@ -358,32 +356,21 @@ void main() async {
   }
 }
 
-KeyEventResult _onKeyEvent(KeyEvent event) {
+KeyEventResult onAppKeyEvent(KeyEvent event) {
   if (event is KeyDownEvent && event.logicalKey == .escape) {
-    _onBack();
+    onAppBack();
     return .handled;
   }
   return .ignored;
 }
 
-void _onBack() {
+void onAppBack() {
   if (SmartDialog.checkExist()) {
     SmartDialog.dismiss();
     return;
   }
 
-  final route = Get.routing.route;
-  if (route is GetPageRoute) {
-    if (route.popDisposition == .doNotPop) {
-      route.onPopInvokedWithResult(false, null);
-      return;
-    }
-  }
-
-  final navigator = Get.key.currentState!;
-  if (navigator.canPop()) {
-    navigator.pop();
-  }
+  Get.key.currentState?.maybePop();
 }
 
 class MyApp extends StatelessWidget {
@@ -508,7 +495,7 @@ class MyApp extends StatelessWidget {
       );
     }
     return BackDetector(
-      onBack: _onBack,
+      onBack: onAppBack,
       child: child,
     );
   }

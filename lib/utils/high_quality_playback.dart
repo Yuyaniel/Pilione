@@ -4,7 +4,7 @@ import 'dart:math';
 
 
 import 'package:PiliPlus/http/api.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/models/video/play/url.dart';
 import 'package:PiliPlus/utils/accounts.dart';
 import 'package:PiliPlus/utils/accounts/account.dart';
@@ -74,11 +74,14 @@ abstract final class HighQualityPlayback {
 
   /// 当前账号的剩余次数；账号已切换或从未查询时返回 -1
   static int get remainingCount {
+    // 先读一次 Rx 再判断：设置页用 Obx 包裹这段文案，GetX 要求回调里至少读到一个
+    // observable，提前 return 会让它在账号切换那一瞬间抛异常（release 下变成错误占位）
+    final cached = remaining.value;
     final currentMid = Pref.userInfoCache?.mid;
     if (_quotaMid != null && currentMid != null && currentMid != _quotaMid) {
       return -1;
     }
-    return remaining.value;
+    return cached;
   }
 
   /// 请求/响应在 localCache 里的键：只在本机留存，不参与配置导出

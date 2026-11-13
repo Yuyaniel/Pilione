@@ -1,5 +1,5 @@
 import 'package:PiliPlus/common/widgets/dialog/dialog.dart';
-import 'package:PiliPlus/models/common/video/video_quality.dart';
+import 'package:PiliPlus/models/common/video/base_quality.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
 import 'package:PiliPlus/pages/setting/widgets/select_dialog.dart';
 import 'package:PiliPlus/pages/setting/widgets/slider_dialog.dart';
@@ -96,18 +96,26 @@ List<SettingsModel> get labSettings => [
       return left > 0 ? '$status（冷却剩余 ${left}s）' : status;
     },
   ),
-  NormalModel(
+  const NormalModel.split(
     title: '高画质所用账号',
-    leading: const Icon(Icons.person_outline),
+    leading: Icon(Icons.person_outline),
+    // 这里不能开 reactive：describeAccount 只读 Pref 的普通字段，一个 Rx 都不读，
+    // 而 Obx 在回调里读不到任何 observable 时会直接抛异常，release 下整行变成错误占位
+    getSubtitle: HighQualityPlayback.describeAccount,
+  ),
+  NormalModel(
+    title: '今日剩余解析次数',
+    leading: const Icon(Icons.toll_outlined),
     reactive: true,
-    isThreeLine: true,
-    subtitleMaxLines: 2,
+    getTrailing: (theme) => Icon(
+      Icons.refresh,
+      size: 20,
+      color: theme.colorScheme.primary,
+    ),
     getSubtitle: () {
       final left = HighQualityPlayback.remainingCount;
-      final quota = left < 0
-          ? '剩余解析次数未知（点击刷新）'
-          : '今日剩余解析次数 $left/100';
-      return '${HighQualityPlayback.describeAccount()}\n$quota';
+      final value = left < 0 ? '尚未获取' : '$left/100';
+      return '$value\n投币可以重置解析次数，点击可刷新';
     },
     onTap: (context, _) async {
       // 查询最坏要等连接超时，给一个轻量反馈
