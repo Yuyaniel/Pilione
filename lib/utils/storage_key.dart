@@ -1,6 +1,8 @@
 // ignore_for_file: constant_identifier_names
 
 abstract final class SettingBoxKey {
+  static const String fullscreenLayout = 'fullscreenLayout';
+
   static const String btmProgressBehavior = 'btmProgressBehavior',
       defaultVideoQa = 'defaultVideoQa',
       defaultVideoQaCellular = 'defaultVideoQaCellular',
@@ -147,6 +149,7 @@ abstract final class SettingBoxKey {
       searchSuggestion = 'searchSuggestion',
       showDecorate = 'showDynDecorate',
       showMedal = 'showMedal',
+      showCacheBtn = 'showCacheBtn',
       showRcmdReason = 'showRcmdReason',
       enableLivePhoto = 'enableLivePhoto',
       showSeekPreview = 'showSeekPreview',
