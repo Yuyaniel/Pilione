@@ -406,7 +406,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                '0% 仅拉齐跨视频整体响度；调高可提升低声对白并抑制突发高音，LRA 自适应避免音乐场景产生抽吸感，低于门限的静音底噪自动冻结不放大。',
+                '0% 仅拉齐跨视频整体响度；调高可提升低声对白并抑制突发高音，LRA 自适应避免音乐场景产生抽吸感，增益上限同时约束底噪放大。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
