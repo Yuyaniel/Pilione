@@ -292,6 +292,10 @@ class MainController extends GetxController
 
   void setIndex(int value) {
     feedBack();
+    // 记录本次点击前是否正处于「内联我的」临时页。
+    // 侧栏/底栏隐藏「我的」时，点头像只置 showMineInline，selectedIndex 仍停在原标签，
+    // 若不留这个标记，紧接着点原标签会被误判成「重复点击当前标签」而触发回顶/刷新。
+    final wasMineInline = showMineInline.value;
     // 切到任意标签页时退出「内联我的」临时页
     showMineInline.value = false;
 
@@ -309,6 +313,10 @@ class MainController extends GetxController
       } else if (currentNav == NavigationBarType.dynamics) {
         setDynCount();
       }
+    } else if (wasMineInline) {
+      // 从「内联我的」返回当前标签：只关闭临时页，不是重复点击当前标签，
+      // 不做回顶/刷新，当前页的列表数据与滚动位置原样保留。
+      return;
     } else {
       if (Pref.enableCurrentPageRefresh) {
         _refreshCurrentNav(currentNav);
