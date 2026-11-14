@@ -11,6 +11,7 @@ enum PlayerLayoutControl {
   download('缓存', PlayerLayoutRegion.actions),
   playerInfo('播放信息', PlayerLayoutRegion.actions),
   share('分享', PlayerLayoutRegion.actions),
+  loudness('音量均衡', PlayerLayoutRegion.actions),
   viewPoints('章节', PlayerLayoutRegion.bottom),
   dmChart('高能进度条', PlayerLayoutRegion.bottom),
   superResolution('超分辨率', PlayerLayoutRegion.bottom),

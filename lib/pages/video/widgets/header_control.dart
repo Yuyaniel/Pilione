@@ -2148,6 +2148,29 @@ class HeaderControlState extends State<HeaderControl>
           semanticsLabel: '分享',
         ),
       ),
+      // 音量均衡：始终占位，避免布局编辑器里取不到子组件。
+      // 全屏布局生效时是否显示由布局的隐藏集合决定；其余场景沿用设置里的显示开关。
+      PlayerLayoutControl.loudness: Obx(() {
+        if (!AudioNormalization.isPlatformSupported ||
+            (layout == null &&
+                !plPlayerController.showPlayerLoudnessBtn.value)) {
+          return const SizedBox.shrink();
+        }
+        final enabled = plPlayerController.enableAudioNormalization;
+        return SizedBox(
+          width: btnWidth,
+          height: btnHeight,
+          child: ActionItem(
+            expand: false,
+            icon: Icon(
+              Icons.graphic_eq,
+              color: enabled ? Colors.white : Colors.white54,
+            ),
+            onTap: showLoudnessBalanceSheet,
+            semanticsLabel: '音量均衡',
+          ),
+        );
+      }),
     };
 
     final headerWidgets = <PlayerLayoutControl, Widget>{
@@ -2400,28 +2423,10 @@ class HeaderControlState extends State<HeaderControl>
                   ?headerWidgets[PlayerLayoutControl.sponsorInfo],
                 ],
                 if (!isPortrait || isFullScreen || PlatformUtils.isDesktop) ...[
-                  if (AudioNormalization.isPlatformSupported)
-                    Obx(() {
-                      if (!plPlayerController.showPlayerLoudnessBtn.value) {
-                        return const SizedBox.shrink();
-                      }
-                      final enabled =
-                          plPlayerController.enableAudioNormalization;
-                      return SizedBox(
-                        width: btnWidth,
-                        height: btnHeight,
-                        child: IconButton(
-                          tooltip: '音量均衡',
-                          style: btnStyle,
-                          onPressed: showLoudnessBalanceSheet,
-                          icon: Icon(
-                            Icons.graphic_eq,
-                            size: 19,
-                            color: enabled ? Colors.white : Colors.white54,
-                          ),
-                        ),
-                      );
-                    }),
+                  // actions 行会渲染时（全屏布局或旧版全屏开关）交给它统一出按钮，
+                  // 其余场景（半屏、直播、本地文件）保持原有位置与显示条件。
+                  if (!showFSActionItem)
+                    ?actionWidgets[PlayerLayoutControl.loudness],
                   SizedBox(
                     width: btnWidth,
                     height: btnHeight,

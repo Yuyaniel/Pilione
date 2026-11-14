@@ -415,8 +415,12 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
           ],
           _SectionTitle('播放器与生效范围', theme),
           SwitchListTile(
-            title: const Text('横屏/全屏顶栏显示快捷按钮'),
-            subtitle: const Text('在横屏或全屏顶栏展示音量均衡入口；竖屏小窗可在右上角更多菜单调节'),
+            title: const Text('顶栏显示快捷按钮'),
+            subtitle: Text(
+              Pref.hasFullscreenLayout
+                  ? '全屏时请在三点菜单的「编辑播放器布局」里控制该按钮；此开关只影响半屏、直播等非布局场景'
+                  : '在横屏或全屏顶栏展示音量均衡入口；竖屏小窗可在右上角更多菜单调节',
+            ),
             value: _showPlayerBtn,
             onChanged: _onShowBtnChanged,
           ),

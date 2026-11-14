@@ -83,6 +83,7 @@ class PlayerControlFace extends StatelessWidget {
     .favorite => _action(FontAwesomeIcons.star),
     .download => _action(CustomIcons.download),
     .playerInfo => _action(Icons.info_outline),
+    .loudness => _action(Icons.graphic_eq),
     .share => _action(FontAwesomeIcons.shareFromSquare),
     .viewPoints => _bottom(CustomIcons.view_headline_rotate_90),
     .dmChart => _bottom(Icons.show_chart),
