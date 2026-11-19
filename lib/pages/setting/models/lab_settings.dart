@@ -63,6 +63,15 @@ List<SettingsModel> get labSettings => [
     setKey: SettingBoxKey.highQualityPlaybackOnStartup,
     defaultVal: false,
   ),
+  const SwitchModel(
+    title: '打开视频即解析（不等全屏）',
+    subtitle: '开启后点开视频就立即在后台解析高画质，不必先进入全屏；'
+        '仍要等首帧稳定、缓冲充足才静默换流，失败保留原画质。'
+        '关闭则沿用旧行为：进入全屏后才开始解析',
+    leading: Icon(Icons.fullscreen_exit_outlined),
+    setKey: SettingBoxKey.highQualityPlaybackOnOpen,
+    defaultVal: false,
+  ),
   NormalModel(
     title: '高画质服务地址',
     leading: const Icon(Icons.dns_outlined),

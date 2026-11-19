@@ -462,8 +462,11 @@ class VideoDetailController extends GetxController
       if (plPlayerController.isLive) return;
 
       if (!fs) {
-        // 退出全屏：停掉还在等缓冲的观察；已经开始的切换不打断
-        _pauseBackgroundHighQuality();
+        // 退出全屏：停掉还在等缓冲的观察；已经开始的切换不打断。
+        // 开了「打开视频即解析」时半屏也是合法场景，不停
+        if (!Pref.highQualityPlaybackOnOpen) {
+          _pauseBackgroundHighQuality();
+        }
         return;
       }
 
@@ -1180,6 +1183,13 @@ class VideoDetailController extends GetxController
   int? _bgQaPendingCid;
   bool _bgQaSwitching = false;
 
+  /// 「打开视频即解析」时提前发出的远端请求：解析不必等缓冲充足，
+  /// 只有换流需要，因此请求与「等首帧/缓冲」并行跑，省掉一次串行等待。
+  Future<PlayUrlModel?>? _bgQaRequest;
+
+  /// [_bgQaRequest] 对应的 cid，用于丢弃切集后过期的结果。
+  int? _bgQaRequestCid;
+
   /// 手动解锁进行中：loading 可穿透，避免重复触发两次切源
   bool _unlocking = false;
 
@@ -1209,16 +1219,23 @@ class VideoDetailController extends GetxController
     );
   }
 
-  /// 起播后登记一次自动切换资格；真正的触发在进入全屏时（事件驱动）。
+  /// 起播后登记一次自动切换资格；默认真正的触发在进入全屏时（事件驱动），
+  /// 开了「打开视频即解析」则起播即开始，不必等全屏。
   void _scheduleBackgroundHighQuality() {
     if (!isUgc || isFileSource) return;
-    if (!Pref.highQualityPlaybackOnStartup) return;
+    // 两个开关任一打开都算启用：「打开视频即解析」可单独生效
+    if (!Pref.highQualityPlaybackOnStartup &&
+        !Pref.highQualityPlaybackOnOpen) {
+      return;
+    }
     if (!HighQualityPlayback.configured) return;
     if (HighQualityPlayback.isUnlocked(cid.value)) return;
     if (_bgQaTriedCid == cid.value) return;
     _bgQaPendingCid = cid.value;
-    // 起播时已经在全屏（全屏连播），直接开始等缓冲
-    if (plPlayerController.isFullScreen.value) {
+    // 起播时已经在全屏（全屏连播），直接开始等缓冲；
+    // 开了「打开视频即解析」则不必等全屏，起播后立刻开始观察
+    if (Pref.highQualityPlaybackOnOpen ||
+        plPlayerController.isFullScreen.value) {
       _armBackgroundHighQuality();
     }
   }
@@ -1236,11 +1253,18 @@ class VideoDetailController extends GetxController
 
     final generation = ++_bgQaGeneration;
     final deadline = DateTime.now().add(const Duration(seconds: 30));
+    // 「打开视频即解析」：请求不碰播放器，只换流需要缓冲充足，
+    // 所以现在就把远端解析发出去，与下面等首帧/缓冲的过程并行跑。
+    if (Pref.highQualityPlaybackOnOpen) {
+      _prefetchBackgroundRequest(pendingCid);
+    }
+    // 「打开视频即解析」时半屏也继续等，否则保持旧行为：退出全屏即放弃观察
+    final requireFullScreen = !Pref.highQualityPlaybackOnOpen;
     _bgQaProbe = Timer.periodic(const Duration(milliseconds: 500), (timer) {
       if (generation != _bgQaGeneration ||
           isClosed ||
           _bgQaPendingCid != cid.value ||
-          !plPlayerController.isFullScreen.value) {
+          (requireFullScreen && !plPlayerController.isFullScreen.value)) {
         timer.cancel();
         _bgQaProbe = null;
         return;
@@ -1259,13 +1283,31 @@ class VideoDetailController extends GetxController
     _bgQaProbe = null;
   }
 
+  /// 提前发起一次远端解析（仅在「打开视频即解析」下使用）。
+  ///
+  /// 请求本身不依赖播放器状态，唯一需要缓冲充足的是随后的换流，
+  /// 因此把它从「等首帧稳定 + 缓冲 5s」之后挪到之前，两件事并行。
+  /// 同一集只发一次；失败返回 null，由 [_runBackgroundHighQuality] 静默回退。
+  void _prefetchBackgroundRequest(int forCid) {
+    if (_bgQaRequest != null && _bgQaRequestCid == forCid) return;
+    _bgQaRequestCid = forCid;
+    _bgQaRequest = HighQualityPlayback.request(
+      bvid: bvid,
+      cid: forCid,
+      localDurationMs: _knownDuration,
+    );
+  }
+
   /// 切源前的安全窗口：已出画面、缓冲充足、不在卡顿 / 小窗 / 其他切换中。
   bool get _bgQaReady {
     final ctrl = plPlayerController;
     if (ctrl.processing || _bgQaSwitching) return false;
     if (ctrl.isPipMode) return false;
-    // 只在全屏时静默切换
-    if (!ctrl.isFullScreen.value) return false;
+    // 只在全屏时静默切换；开了「打开视频即解析」则不限制，半屏也能切
+    if (!Pref.highQualityPlaybackOnOpen &&
+        !ctrl.isFullScreen.value) {
+      return false;
+    }
     // 退到后台时不动播放器，避免把后台播放的音频打断
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       return false;
@@ -1285,6 +1327,9 @@ class VideoDetailController extends GetxController
     _bgQaProbe?.cancel();
     _bgQaProbe = null;
     _bgQaPendingCid = null;
+    // 已发出的预取请求结果一并丢弃：手动改画质 / 切集后不能再拿它换流
+    _bgQaRequest = null;
+    _bgQaRequestCid = null;
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {
@@ -1311,11 +1356,18 @@ class VideoDetailController extends GetxController
       loading: true,
     );
     try {
-      final remote = await HighQualityPlayback.request(
-        bvid: bvid,
-        cid: currentCid,
-        localDurationMs: _knownDuration,
-      );
+      // 「打开视频即解析」时请求已在等缓冲期间发出，这里直接复用，
+      // 不再重复消耗一次解析；没有预取（或切了集）才现发一次。
+      final prefetched = _bgQaRequestCid == currentCid ? _bgQaRequest : null;
+      _bgQaRequest = null;
+      _bgQaRequestCid = null;
+      final remote =
+          await (prefetched ??
+              HighQualityPlayback.request(
+                bvid: bvid,
+                cid: currentCid,
+                localDurationMs: _knownDuration,
+              ));
       // 失败静默回退：保持官方流，原因留在 HighQualityPlayback.lastStatus
       if (remote == null) {
         return;

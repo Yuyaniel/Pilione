@@ -1365,6 +1365,13 @@ abstract final class Pref {
     defaultValue: false,
   );
 
+  /// 打开视频就开始后台解析（不必等进入全屏）；
+  /// 关闭则沿用旧行为：进入全屏后才开始观察缓冲并解析
+  static bool get highQualityPlaybackOnOpen => _setting.get(
+    SettingBoxKey.highQualityPlaybackOnOpen,
+    defaultValue: false,
+  );
+
   /// 番剧/课程是否也走第三方解析（bzview3），仅对非 DRM 内容有效
   static bool get pgcPlayback =>
       _setting.get(SettingBoxKey.pgcPlayback, defaultValue: false);
