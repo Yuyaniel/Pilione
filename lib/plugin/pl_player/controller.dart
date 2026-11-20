@@ -1558,7 +1558,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   /// [prefetch] 为 true 时先把新流追加到播放列表让 mpv 后台预读
   /// （旧流继续播，用户无感），再 `playlist-next` 切过去；
   /// 没切成会自动退回直接 open。
-  Future<void> swapSource(
+  ///
+  /// 返回 true 表示走了预读无缝路径（位置已精确对齐、画面不黑），
+  /// 返回 false 表示退回了直接 open（会黑一下、位置需要调用方补偿）。
+  Future<bool> swapSource(
     DataSource dataSource, {
     Duration? seekTo,
     bool? play,
@@ -1567,7 +1570,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     bool Function()? isCancelled,
   }) async {
     final player = _videoPlayerController;
-    if (player == null || _playerCount == 0) return;
+    if (player == null || _playerCount == 0) return false;
     this.dataSource = dataSource;
 
     Media buildMedia(Duration? start) {
@@ -1606,11 +1609,21 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         final beforeLength = player.state.playlist.medias.length;
         final beforeIndex = player.state.playlist.index;
         player.setProperty('prefetch-playlist', 'yes');
-        await player.add(buildMedia(seekTo));
-        // 等 media_kit 把播放列表同步过来
-        for (var i = 0; i < 10; i++) {
-          if (player.state.playlist.medias.length > beforeLength) break;
-          await Future<void>.delayed(const Duration(milliseconds: 50));
+        // 等 media_kit 把播放列表同步过来：订阅 playlist 流而不是盲轮询
+        final appended = Completer<void>();
+        final appendSub = player.stream.playlist.listen((playlist) {
+          if (playlist.medias.length > beforeLength && !appended.isCompleted) {
+            appended.complete();
+          }
+        });
+        try {
+          await player.add(buildMedia(seekTo));
+          await appended.future.timeout(
+            const Duration(milliseconds: 500),
+            onTimeout: () {},
+          );
+        } finally {
+          await appendSub.cancel();
         }
         if (player.state.playlist.medias.length > beforeLength) {
           // 预读期间旧流仍在播，用户无感
@@ -1621,7 +1634,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               (isCancelled?.call() ?? false)) {
             final last = player.state.playlist.medias.length - 1;
             if (last > beforeIndex) await player.remove(last);
-            return;
+            return false;
           }
           // 预读期间旧流还在往前走，切换点必须取现在的位置，
           // 否则换完会倒回去一小段
@@ -1633,10 +1646,22 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           final resumeAt = isLive
               ? null
               : (isJump ? seekTo : (live ?? seekTo));
-          await player.next();
-          for (var i = 0; i < 30; i++) {
-            if (player.state.playlist.index > beforeIndex) break;
-            await Future<void>.delayed(const Duration(milliseconds: 50));
+          // 等播放列表真正切到新条目：订阅 playlist 流，命中即刻继续。
+          // 原来固定 30×50ms 盲轮询，切得快也要空转满 1.5 秒。
+          final switched = Completer<void>();
+          final playlistSub = player.stream.playlist.listen((playlist) {
+            if (playlist.index > beforeIndex && !switched.isCompleted) {
+              switched.complete();
+            }
+          });
+          try {
+            await player.next();
+            await switched.future.timeout(
+              const Duration(milliseconds: 1500),
+              onTimeout: () {},
+            );
+          } finally {
+            await playlistSub.cancel();
           }
           if (player.state.playlist.index > beforeIndex) {
             final speed = isLive ? 1.0 : playbackSpeed;
@@ -1647,7 +1672,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
               await player.play();
             }
             await _alignAfterSwap(player, resumeAt, force: true);
-            return;
+            return true;
           }
           // 没切过去：删掉追加项，避免播完自动跳进这一条
           final last = player.state.playlist.medias.length - 1;
@@ -1668,6 +1693,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       await player.play();
     }
     await _alignAfterSwap(player, seekTo);
+    return false;
   }
 
   Future<void>? refreshPlayer() {

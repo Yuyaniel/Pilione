@@ -189,6 +189,15 @@ dependencies:
   window_manager: ^0.6.0
 
 dependency_overrides:
+  # jni 1.2.0（2026-11-19 发布、现已 retracted）删掉了 findClass 里「剥掉 L...; 描述符」
+  # 的兼容逻辑，而 path_provider_android 2.3.1 是 jnigen 0.16.0 生成的：它的
+  # $Context$Type$.signature 是 'Landroid/content/Context;'，className 为 null，
+  # 于是 jClass 把完整描述符喂给 FindClass，Dalvik 报
+  # ClassNotFoundException: Didn't find class "Landroid/content/Context;"，
+  # 启动期 getApplicationSupportDirectory() 就崩。锁在 1.1.2（jni_flutter 随之降到
+  # 1.0.4+1，它约束 jni ^1.1.0），等上游 jnigen 生成 className 后再放开。
+  jni: 1.1.2
+  jni_flutter: 1.0.4+1
   # 国内镜像的 material_ui 1.8.0 与 pub.dev 内容不一致（缺公共 typedef），
   # 这里强制从 pub.dev 取，否则 analyze 会报大量 Undefined class
   material_ui:

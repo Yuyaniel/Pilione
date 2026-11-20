@@ -212,8 +212,15 @@ class _StartupFailureApp extends StatelessWidget {
 
 void main() async {
   ScaledWidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
-  await _initAppPath();
+  try {
+    MediaKit.ensureInitialized();
+    await _initAppPath();
+  } catch (e) {
+    // 连应用支持目录都拿不到时日志也无处可写，只能直接给失败页
+    if (kDebugMode) debugPrint('app path init error: $e');
+    runApp(_StartupFailureApp(error: e));
+    return;
+  }
   try {
     await GStorage.init();
   } catch (e) {
@@ -222,6 +229,25 @@ void main() async {
     runApp(_StartupFailureApp(error: e));
     return;
   }
+  // 从这里到 runApp 之间的初始化任何一步抛错，runApp 都不会执行，
+  // 表现就是「卡在第一屏进不去」且没有任何提示 —— 整段兜住，落到失败页。
+  // 卡死也要有出路：启动期某个 await 永不返回时（网络请求没设超时、
+  // 原生插件回调丢失等）try/catch 是抓不到的，表现同样是「卡在第一屏」。
+  // 超过 60 秒直接落到失败页，至少让用户知道发生了什么。
+  try {
+    await _bootstrap().timeout(const Duration(seconds: 60));
+  } catch (e, s) {
+    logger.e('startup failed', error: e, stackTrace: s);
+    runApp(_StartupFailureApp(error: e));
+  }
+}
+
+/// 启动期主流程：存储就绪之后、runApp 之前的全部初始化。
+///
+/// 抽成独立函数只为让 [main] 能整段兜住异常，逻辑与原内联版本一致。
+Future<void> _bootstrap() async {
+  // 先挂错误兜底，后续每一步的异步异常都能落进日志，而不是只剩白屏
+  _installErrorHandlers();
   // 进程启动时一次性回填最近一次请求/响应，避免设置页在 build 中读缓存
   HighQualityPlayback.restoreLastRecord();
   ScaledWidgetsFlutterBinding.instance.scaleFactor = Pref.uiScale;

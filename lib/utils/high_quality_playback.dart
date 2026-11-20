@@ -102,6 +102,11 @@ abstract final class HighQualityPlayback {
   /// 进程重启后该标志自然消失，此时缓存也已删空，不会复活。
   static bool _cleared = false;
 
+  /// 记录代次：每次「清除记录」+1。请求开始时快照，落盘时比对，
+  /// 代次不一致说明是清除之前发出的在途请求，结果直接丢弃，
+  /// 否则会把刚删掉的旧记录写回缓存（清除后复活）。
+  static int _recordGen = 0;
+
   /// 重置全部进程内状态（含注入的 Dio），仅供测试/调试调用。
   static void reset() {
     lastRequest = null;
@@ -113,6 +118,7 @@ abstract final class HighQualityPlayback {
     _cooldownUntil = null;
     _unlockedCid = null;
     _cleared = false;
+    _recordGen = 0;
     injectedDio = null;
     _dio = null;
   }
@@ -252,8 +258,14 @@ abstract final class HighQualityPlayback {
     }
   }
 
-  static Future<void> _persistRecord(String key, String value) async {
-    _cleared = false;
+  static Future<void> _persistRecord(
+    String key,
+    String value, {
+    required int gen,
+  }) async {
+    // 用户在这条请求发出之后点过「清除记录」：落盘必须丢弃，
+    // 否则会把刚删掉的旧记录写回缓存，重启后又出现在设置页
+    if (gen != _recordGen) return;
     try {
       await GStorage.localCache.put(key, value);
     } catch (_) {
@@ -268,6 +280,8 @@ abstract final class HighQualityPlayback {
     lastStatus = null;
     _cooldownUntil = null; // 状态行与冷却显示保持一致
     _cleared = true;
+    // 代次 +1：此刻仍在路上的请求落盘时会被 [_persistRecord] 丢弃
+    _recordGen++;
     try {
       await GStorage.localCache.deleteAll([
         _cacheKeyRequest,
@@ -295,6 +309,8 @@ abstract final class HighQualityPlayback {
       lastStatus = '未启用：服务地址必须以 http:// 开头';
       return null;
     }
+    // 快照代次：本次请求期间若用户点了「清除记录」，落盘会被丢弃
+    final gen = _recordGen;
 
     try {
       final params = await WbiSign.makSign({
@@ -344,7 +360,8 @@ abstract final class HighQualityPlayback {
       };
 
       lastRequest = clipDebug(prettyMasked(payload));
-      await _persistRecord(_cacheKeyRequest, lastRequest!);
+      // 记录只用于调试查看，不阻塞请求；_persistRecord 内部已吞掉所有异常
+      unawaited(_persistRecord(_cacheKeyRequest, lastRequest!, gen: gen));
 
       final res = await _client.post<dynamic>(endpoint(server), data: payload);
 
@@ -352,7 +369,7 @@ abstract final class HighQualityPlayback {
           ? res.data as String
           : jsonEncode(res.data);
       lastResponse = clipDebug(raw);
-      await _persistRecord(_cacheKeyResponse, lastResponse!);
+      unawaited(_persistRecord(_cacheKeyResponse, lastResponse!, gen: gen));
 
       final body = jsonDecode(raw);
       if (body is! Map) {
@@ -438,6 +455,8 @@ abstract final class HighQualityPlayback {
       lastStatus = '未启用：服务地址必须以 http:// 开头';
       return null;
     }
+    // 快照代次：本次请求期间若用户点了「清除记录」，落盘会被丢弃
+    final gen = _recordGen;
 
     try {
       // 按浏览器真实请求补全参数：playview 必须带 wbi 签名（w_rid/wts），
@@ -480,7 +499,7 @@ abstract final class HighQualityPlayback {
       };
 
       lastRequest = clipDebug(prettyMasked(payload));
-      await _persistRecord(_cacheKeyRequest, lastRequest!);
+      unawaited(_persistRecord(_cacheKeyRequest, lastRequest!, gen: gen));
 
       Future<Response<dynamic>> post() => _client.post<dynamic>(
         endpointPgc(server),
@@ -509,7 +528,7 @@ abstract final class HighQualityPlayback {
           ? res.data as String
           : jsonEncode(res.data);
       lastResponse = clipDebug(raw);
-      await _persistRecord(_cacheKeyResponse, lastResponse!);
+      unawaited(_persistRecord(_cacheKeyResponse, lastResponse!, gen: gen));
 
       final body = jsonDecode(raw);
       if (body is! Map) {
@@ -567,7 +586,7 @@ abstract final class HighQualityPlayback {
         lastResponse = clipDebug(
           'HTTP ${e.response!.statusCode}: ${e.response!.data}',
         );
-        await _persistRecord(_cacheKeyResponse, lastResponse!);
+        unawaited(_persistRecord(_cacheKeyResponse, lastResponse!, gen: gen));
       }
       lastStatus = '失败：${friendlyError(e)}';
       _enterCooldown(networkError: _isNetworkError(e));

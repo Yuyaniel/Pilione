@@ -89,6 +89,7 @@ class SplitModel extends SettingsModel {
     contentPadding: contentPadding,
     titleStyle: titleStyle,
     isSplit: true,
+    disabledBy: switchModel.disabledBy,
   );
 }
 
@@ -208,6 +209,9 @@ class SwitchModel extends SettingsModel {
   final bool needReboot;
   final void Function(BuildContext context)? onTap;
 
+  /// 该设置键为 true 时本项置灰、不可切换（见 [SetSwitchItem.disabledBy]）
+  final String? disabledBy;
+
   const SwitchModel({
     super.subtitle,
     super.leading,
@@ -219,6 +223,7 @@ class SwitchModel extends SettingsModel {
     this.onChanged,
     this.needReboot = false,
     this.onTap,
+    this.disabledBy,
   });
 
   const SwitchModel.split({
@@ -227,6 +232,7 @@ class SwitchModel extends SettingsModel {
     this.needReboot = false,
     this.onChanged,
     this.onTap,
+    this.disabledBy,
   }) : title = null;
 
   @override
@@ -246,6 +252,7 @@ class SwitchModel extends SettingsModel {
     onTap: onTap,
     contentPadding: contentPadding,
     titleStyle: titleStyle,
+    disabledBy: disabledBy,
   );
 }
 

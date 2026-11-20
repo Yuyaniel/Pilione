@@ -470,15 +470,32 @@ class VideoDetailController extends GetxController
         return;
       }
 
-      // 开了「起播后自动切换」时，全屏升档交给后台任务，
+      // 已经手动解锁过该视频：当前流就是解析流，再走下面的本地升档只会
+      // 触发 updatePlayer() 重开（http/video.dart 会重新请求一次解析服务），
+      // 白停一下。isUnlocked 是历史标记，与「高画质播放」总开关当前是否还
+      // 开着无关，所以这里不依赖 configured：中途关掉总开关 / 清空服务地址，
+      // 已解锁状态依然要短路，不能让它落回官方档。
+      if (HighQualityPlayback.isUnlocked(cid.value)) {
+        return;
+      }
+
+      // 后台升档：两个开关任一打开，全屏升档都交给后台任务，
       // 避免先升默认画质、再切目标档的连续两次重开。
+      // 「打开视频即解析」是「起播后自动切换」的超集（同一套后台换流，只是
+      // 开始得更早），所以这里也必须认它：只开前者时半屏可能已经换过流，
+      // 若仍走下面的本地升档，会把解析流打回官方档，白停一下。
       // 该视频没有大会员专属（本地拿不到）的档位时不走这条分支：
-      // 没有可解锁的目标，弹「正在解锁」只会干扰，还白跑一次远端请求；
+      // 没有可解锁的目标，白跑一次远端请求；
       // 落到下面的本地升档逻辑（半屏画质 → 全屏画质）即可。
-      if (Pref.highQualityPlaybackOnStartup &&
+      if ((Pref.highQualityPlaybackOnStartup ||
+              Pref.highQualityPlaybackOnOpen) &&
           HighQualityPlayback.configured &&
-          !HighQualityPlayback.isUnlocked(cid.value) &&
           _hasUnlockableQuality) {
+        // _bgQaPendingCid 由 _scheduleBackgroundHighQuality() 在起播时设好，
+        // 退出全屏的 _pauseBackgroundHighQuality() 不清它，本来就能重新接管；
+        // 这里刻意不再补赋值：用户手动改画质 / 切集 / 重载会经
+        // cancelBackgroundHighQuality() 把它清成 null，此时应尊重「手动优先」，
+        // 不重新挂起后台换流（_armBackgroundHighQuality 的前置守卫会挡掉）。
         _armBackgroundHighQuality();
         return;
       }
@@ -1178,6 +1195,11 @@ class VideoDetailController extends GetxController
   // 切换失败自动回退原画质；手动改画质 / 切集 / 离开页面都会取消挂起任务。
 
   Timer? _bgQaProbe;
+
+  /// 事件驱动的就绪观察者：订阅播放位置 / 缓冲 / 卡顿 / 全屏，
+  /// 只在相关值真的变化时才检查一次，取代原来 500ms 的盲轮询。
+  List<Worker> _bgQaWorkers = const [];
+
   int _bgQaGeneration = 0;
   int? _bgQaTriedCid;
   int? _bgQaPendingCid;
@@ -1195,9 +1217,6 @@ class VideoDetailController extends GetxController
 
   /// 数据源代次：切集 / 重载时递增，用于丢弃过期的解锁结果
   int _qualityGen = 0;
-
-  /// 解锁相关提示共用的 dialog tag（先关旧再开新，避免叠加）
-  static const String _quotaTag = 'highQualityQuota';
 
   /// 已探过速的 cid，同一视频不重复探
   int? _cdnProbedCid;
@@ -1240,7 +1259,7 @@ class VideoDetailController extends GetxController
     }
   }
 
-  /// 进入全屏：开始观察缓冲，满足「缓冲 ≥5s 且不卡顿」就静默切换。
+  /// 开始观察缓冲：满足「已出画面 + 缓冲 ≥3s + 不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
     // 该视频没有可解锁的档位：不请求、不提示（起播即全屏的路径据此跳过）
     if (!_hasUnlockableQuality) return;
@@ -1252,7 +1271,6 @@ class VideoDetailController extends GetxController
     if (_bgQaProbe != null) return;
 
     final generation = ++_bgQaGeneration;
-    final deadline = DateTime.now().add(const Duration(seconds: 30));
     // 「打开视频即解析」：请求不碰播放器，只换流需要缓冲充足，
     // 所以现在就把远端解析发出去，与下面等首帧/缓冲的过程并行跑。
     if (Pref.highQualityPlaybackOnOpen) {
@@ -1260,33 +1278,58 @@ class VideoDetailController extends GetxController
     }
     // 「打开视频即解析」时半屏也继续等，否则保持旧行为：退出全屏即放弃观察
     final requireFullScreen = !Pref.highQualityPlaybackOnOpen;
-    _bgQaProbe = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+
+    void trySwitch() {
       if (generation != _bgQaGeneration ||
           isClosed ||
           _bgQaPendingCid != cid.value ||
           (requireFullScreen && !plPlayerController.isFullScreen.value)) {
-        timer.cancel();
-        _bgQaProbe = null;
+        _stopBackgroundProbe();
         return;
       }
-      if (DateTime.now().isAfter(deadline) || !_bgQaReady) return;
-      timer.cancel();
-      _bgQaProbe = null;
+      if (!_bgQaReady) return;
+      _stopBackgroundProbe();
       _bgQaTriedCid = pendingCid;
       unawaited(_runBackgroundHighQuality(generation));
+    }
+
+    // 事件驱动：位置 / 缓冲 / 卡顿 / 全屏任一变化才检查一次。
+    // 原来 500ms 盲轮询最多要白等 500ms 才可能命中条件。
+    _bgQaWorkers = [
+      everAll([
+        plPlayerController.position,
+        plPlayerController.buffered,
+        plPlayerController.isBuffering,
+        plPlayerController.isFullScreen,
+      ], (_) => trySwitch()),
+    ];
+    // 兜底：30 秒内一个值都没变化时也要退出观察，别把 Worker 挂到页面销毁
+    _bgQaProbe = Timer(const Duration(seconds: 30), () {
+      if (generation == _bgQaGeneration) _stopBackgroundProbe();
     });
+    // 立即判一次：进全屏时条件可能早已满足，等不到下一次变化事件
+    trySwitch();
+  }
+
+  /// 停掉就绪观察（Worker + 兜底 Timer），不改变 [_bgQaTriedCid] 资格。
+  void _stopBackgroundProbe() {
+    _bgQaProbe?.cancel();
+    _bgQaProbe = null;
+    for (final worker in _bgQaWorkers) {
+      worker.dispose();
+    }
+    _bgQaWorkers = const [];
   }
 
   /// 退出全屏：停掉观察但保留资格，下次进全屏再试。
   void _pauseBackgroundHighQuality() {
-    _bgQaProbe?.cancel();
-    _bgQaProbe = null;
+    _stopBackgroundProbe();
   }
 
   /// 提前发起一次远端解析（仅在「打开视频即解析」下使用）。
   ///
   /// 请求本身不依赖播放器状态，唯一需要缓冲充足的是随后的换流，
-  /// 因此把它从「等首帧稳定 + 缓冲 5s」之后挪到之前，两件事并行。
+  /// 因此把它从「等首帧稳定 + 缓冲充足」之后挪到之前，两件事并行。
   /// 同一集只发一次；失败返回 null，由 [_runBackgroundHighQuality] 静默回退。
   void _prefetchBackgroundRequest(int forCid) {
     if (_bgQaRequest != null && _bgQaRequestCid == forCid) return;
@@ -1317,15 +1360,17 @@ class VideoDetailController extends GetxController
     if (!ctrl.playerStatus.isPlaying && !ctrl.playerStatus.isPaused) {
       return false;
     }
-    if (ctrl.position.value < 2) return false;
-    return ctrl.buffered.value >= 5;
+    // 门槛只保证「已出画面且前向缓冲够续播」：
+    // 原来 position 2s / buffered 5s 会白等约 1.5 秒，放宽到
+    // 0.5s / 3s 后换流时仍有 3 秒缓冲垫底，卡顿风险可接受。
+    if (ctrl.positionInMilliseconds < 500) return false;
+    return ctrl.buffered.value >= 3;
   }
 
   /// 取消自动切换资格（手动改画质、切集、离开页面时调用）。
   void cancelBackgroundHighQuality() {
     _bgQaGeneration++;
-    _bgQaProbe?.cancel();
-    _bgQaProbe = null;
+    _stopBackgroundProbe();
     _bgQaPendingCid = null;
     // 已发出的预取请求结果一并丢弃：手动改画质 / 切集后不能再拿它换流
     _bgQaRequest = null;
@@ -1348,13 +1393,6 @@ class VideoDetailController extends GetxController
         : localVideos.map((e) => e.id).reduce(max);
     final expectedQa = localTop < cap ? localTop : cap;
     final targetDesc = VideoQuality.fromCode(expectedQa).desc;
-    // 解锁期间显示「正在解锁」，完成或失败由 finally 关闭；
-    // 不再单独提示「已解锁并切换到 X」，实际档位以画质菜单为准
-    await _showUnlockTip(
-      '正在解锁 $targetDesc…',
-      displayTime: const Duration(seconds: 30),
-      loading: true,
-    );
     try {
       // 「打开视频即解析」时请求已在等缓冲期间发出，这里直接复用，
       // 不再重复消耗一次解析；没有预取（或切了集）才现发一次。
@@ -1395,20 +1433,20 @@ class VideoDetailController extends GetxController
         return;
       }
     } finally {
-      await SmartDialog.dismiss(tag: _quotaTag);
+      // 后台静默解锁不打扰用户：不加提示 pill、不弹剩余次数 toast，
+      // 实际档位以画质菜单为准，失败原因留在 HighQualityPlayback.lastStatus
+      if (kDebugMode) {
+        debugPrint('[HighQuality] 后台解锁 $targetDesc 结束');
+      }
     }
 
-    // 后台切换同样消耗一次解析，刷新设置页显示的剩余次数
-    final remaining = await HighQualityPlayback.refreshRemaining().timeout(
-      const Duration(seconds: 3),
-      onTimeout: () => null,
+    // 后台切换同样消耗一次解析，刷新设置页显示的剩余次数（不弹提示）
+    unawaited(
+      HighQualityPlayback.refreshRemaining().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => null,
+      ),
     );
-    if (remaining != null) {
-      await _showUnlockTip(
-        '今日剩余解析次数 $remaining 次',
-        icon: Icons.data_usage_outlined,
-      );
-    }
   }
 
   /// 静默切画质：隐藏加载指示器、保留播放位置与暂停状态，失败回退。
@@ -1436,18 +1474,19 @@ class VideoDetailController extends GetxController
       // 无缝换流成功时位置已由 swapSource 精确对齐，跳过下面的 drift 补偿
       var seamless = false;
       try {
-        await ctrl.swapSource(
-          NetworkSource(
-            videoSource: videoUrl!,
-            audioSource: audioUrl,
-          ),
-          seekTo: oldPosition,
-          play: wasPlaying,
-          prefetch: true,
-          isCancelled: () => generation != _bgQaGeneration || isClosed,
-        ).timeout(const Duration(seconds: 15));
+        seamless = await ctrl
+            .swapSource(
+              NetworkSource(
+                videoSource: videoUrl!,
+                audioSource: audioUrl,
+              ),
+              seekTo: oldPosition,
+              play: wasPlaying,
+              prefetch: true,
+              isCancelled: () => generation != _bgQaGeneration || isClosed,
+            )
+            .timeout(const Duration(seconds: 15));
         ok = ctrl.dataStatus.value != DataStatus.error;
-        seamless = ok;
       } catch (_) {
         ok = false;
       }
@@ -1626,8 +1665,6 @@ class VideoDetailController extends GetxController
     try {
       // 手动优先：取消可能已挂起的自动切换，避免两次请求/两次重开
       cancelBackgroundHighQuality();
-      // 上一次的提示可能还在展示，先关掉避免和新的 loading 叠在底部
-      unawaited(SmartDialog.dismiss(tag: _quotaTag));
       // 与自动切换一致：按当前视频已知的最高档位提示，不用设置的上限
       final localVideos = data.dash?.video;
       final localTop = localVideos == null || localVideos.isEmpty
@@ -1636,19 +1673,18 @@ class VideoDetailController extends GetxController
       final expectedQa = localTop < quality ? localTop : quality;
       final desc = VideoQuality.fromCode(expectedQa).desc;
       final startedAt = DateTime.now();
-      // 与结果提示同位置、同外观：贴底、无遮罩、可穿透，解锁期间画面照常播放。
+      // 手动点击必须有反馈，用 SDK 自带的 loading（可穿透，画面照常播放）；
       // 兜底 30s：请求最坏 ~10.5s + 一次切源 15s，正常路径由下面的 dismiss 关闭。
       SmartDialog.showLoading(
+        msg: '正在解锁 $desc…',
         usePenetrate: true,
         maskColor: Colors.transparent,
-        alignment: Alignment.bottomCenter,
         displayTime: const Duration(seconds: 30),
-        builder: (context) => _buildUnlockPill(context, '正在解锁 $desc…'),
       );
       final error = await unlockQuality(quality).catchError(
         (Object e) => '解锁异常：${HighQualityPlayback.friendlyError(e)}',
       );
-      // 请求/切源过快时让「正在解锁」至少停留 350ms，避免一闪而过
+      // 请求/切源过快时让 loading 至少停留 350ms，避免一闪而过
       const minLoading = Duration(milliseconds: 350);
       final elapsed = DateTime.now().difference(startedAt);
       if (elapsed < minLoading) {
@@ -1659,109 +1695,23 @@ class VideoDetailController extends GetxController
       if (isClosed) return;
 
       if (error != null) {
-        await _showUnlockTip(
-          error,
-          displayTime: const Duration(seconds: 2),
-          isError: true,
-        );
+        SmartDialog.showToast(error, displayTime: const Duration(seconds: 2));
         return;
       }
 
-      // 切源已完成：loading 直接接替为剩余次数提示，
-      // 不再显示「已解锁并切换到 X」，实际档位以画质菜单为准
+      // 切源已完成：只报剩余次数，不显示「已解锁并切换到 X」，
+      // 实际档位以画质菜单为准
       final remaining = await HighQualityPlayback.refreshRemaining().timeout(
         const Duration(seconds: 3),
         onTimeout: () => null,
       );
       if (isClosed) return;
-      await _showUnlockTip(
-        remaining == null
-            ? '剩余解析次数获取失败'
-            : '今日剩余解析次数 $remaining 次',
-        isError: remaining == null,
-        icon: remaining == null ? null : Icons.data_usage_outlined,
+      SmartDialog.showToast(
+        remaining == null ? '剩余解析次数获取失败' : '今日剩余解析次数 $remaining 次',
       );
     } finally {
       _unlocking = false;
     }
-  }
-
-  /// 解锁流程的提示：与结果同款 pill，统一走带 tag 的 dialog。
-  /// 既避开 toast 的 onlyRefresh 队列（会把提示立刻顶掉），也不会误关其他 toast。
-  Future<void> _showUnlockTip(
-    String msg, {
-    Duration displayTime = const Duration(seconds: 5),
-    bool loading = false,
-    bool isError = false,
-    IconData? icon,
-  }) async {
-    await SmartDialog.dismiss(tag: _quotaTag);
-    if (isClosed) return;
-    SmartDialog.show(
-      tag: _quotaTag,
-      alignment: Alignment.bottomCenter,
-      displayTime: displayTime,
-      animationType: SmartAnimationType.fade,
-      usePenetrate: true,
-      maskColor: Colors.transparent,
-      builder: (context) => _buildUnlockPill(
-        context,
-        msg,
-        loading: loading,
-        isError: isError,
-        icon: icon,
-      ),
-    );
-  }
-
-  /// 解锁提示的轻量 pill：与默认 toast 同一落点（底部居中 + 50 外边距），
-  /// 透明底、不拦手势。loading 显示转圈，结果用成功/失败/自定义图标。
-  Widget _buildUnlockPill(
-    BuildContext context,
-    String msg, {
-    bool loading = true,
-    bool isError = false,
-    IconData? icon,
-  }) {
-    final colorScheme = ColorScheme.of(context);
-    return Container(
-      margin: const EdgeInsets.fromLTRB(30, 0, 30, 50),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.92),
-        borderRadius: const BorderRadius.all(Radius.circular(20)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        spacing: 8,
-        children: [
-          if (loading)
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(colorScheme.primary),
-              ),
-            )
-          else
-            Icon(
-              icon ??
-                  (isError
-                      ? Icons.error_outline
-                      : Icons.check_circle_outline),
-              size: 15,
-              color: isError ? colorScheme.error : colorScheme.primary,
-            ),
-          Flexible(
-            child: Text(
-              msg,
-              style: TextStyle(color: colorScheme.onSurface, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 
   Volume? volume;
@@ -2495,7 +2445,6 @@ class VideoDetailController extends GetxController
   @override
   void onClose() {
     cancelBackgroundHighQuality();
-    unawaited(SmartDialog.dismiss(tag: _quotaTag));
     plPlayerController.onNeedsPlayerInit = null;
     if (isEnteringPip) {
       // 正在进入小窗，保留资源
