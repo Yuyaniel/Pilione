@@ -1101,14 +1101,14 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   }
 
   void setLoudnessTarget(num value, {bool persist = true}) {
+    const min = AudioNormalization.minTargetLufs;
+    const step = AudioNormalization.targetLufsStep;
     final clamped = value
         .round()
-        .clamp(
-          AudioNormalization.minTargetLufs,
-          AudioNormalization.maxTargetLufs,
-        )
+        .clamp(min, AudioNormalization.maxTargetLufs)
         .toInt();
-    loudnessTarget.value = clamped;
+    // 对齐到 -24 + n*2 的刻度，保证任何入口写入的值都符合滑块步进 2
+    loudnessTarget.value = min + ((clamped - min) / step).round() * step;
     if (!enableAudioNormalization) {
       audioNormalizationMode.value = AudioNormalization.bewlyCode;
       setting.putAllNE({

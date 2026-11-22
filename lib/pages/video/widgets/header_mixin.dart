@@ -816,8 +816,7 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                           child: Slider(
                             min: AudioNormalization.minTargetLufs.toDouble(),
                             max: AudioNormalization.maxTargetLufs.toDouble(),
-                            divisions: AudioNormalization.maxTargetLufs -
-                                AudioNormalization.minTargetLufs,
+                            divisions: AudioNormalization.targetLufsDivisions,
                             value: targetLufs.toDouble(),
                             label: '$targetLufs LUFS',
                             onChanged: (value) {

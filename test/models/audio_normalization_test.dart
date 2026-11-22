@@ -235,5 +235,28 @@ void main() {
         '当前:「智能音量平衡」· 目标 -18 LUFS · 强度 75%',
       );
     });
+
+    test('目标响度范围 -24 ~ 0 LUFS、每档 2 LU', () {
+      expect(AudioNormalization.minTargetLufs, -24);
+      expect(AudioNormalization.maxTargetLufs, 0);
+      expect(AudioNormalization.targetLufsStep, 2);
+      expect(AudioNormalization.targetLufsDivisions, 12);
+
+      // 上限放宽到 0 后不再被旧的 -14 截住，delta 由安全增益上限钳制
+      final gain = AudioNormalization.computeBaseGainDb(
+        targetLufs: AudioNormalization.maxTargetLufs,
+        strength: AudioNormalization.defaultStrength,
+        volume: _makeVolume(measuredI: -14.0),
+      );
+      expect(gain, 10.0);
+
+      // 下限之外仍按 -24 处理
+      final lowGain = AudioNormalization.computeBaseGainDb(
+        targetLufs: -40,
+        strength: 75,
+        volume: _makeVolume(measuredI: -1.0),
+      );
+      expect(lowGain, -18.0);
+    });
   });
 }

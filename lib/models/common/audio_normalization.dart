@@ -69,8 +69,14 @@ enum AudioNormalization {
   static const String customCode = '3';
 
   static const int minTargetLufs = -24;
-  static const int maxTargetLufs = -14;
+  static const int maxTargetLufs = 0;
   static const int defaultTargetLufs = -18;
+
+  /// 目标响度滑块每档 2 LUFS；-24 ~ 0 共 12 档。
+  /// 两处 UI（设置页 / 播放页顶栏）共用同一刻度数，避免各自算 divisions 漂移。
+  static const int targetLufsStep = 2;
+  static const int targetLufsDivisions =
+      (maxTargetLufs - minTargetLufs) ~/ targetLufsStep;
 
   static const int minStrength = 0;
   static const int maxStrength = 100;

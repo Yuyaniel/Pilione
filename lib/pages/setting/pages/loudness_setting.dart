@@ -364,8 +364,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
                 value: _targetLufs,
                 min: AudioNormalization.minTargetLufs.toDouble(),
                 max: AudioNormalization.maxTargetLufs.toDouble(),
-                divisions: AudioNormalization.maxTargetLufs -
-                    AudioNormalization.minTargetLufs,
+                divisions: AudioNormalization.targetLufsDivisions,
                 label: '${_targetLufs.round()} LUFS',
                 onChanged: _onTargetChanged,
                 onChangeEnd: _onTargetChangeEnd,
@@ -374,7 +373,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                '数值越大整体声音越响；默认 -18 LUFS 兼顾人声清晰度与峰值防破音余量。',
+                '数值越大整体声音越响；可调 -24 ~ 0 LUFS、每档 2 LU，默认 -18 LUFS 兼顾人声清晰度与峰值防破音余量。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
