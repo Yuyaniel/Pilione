@@ -464,10 +464,9 @@ class VideoDetailController extends GetxController
 
       if (!fs) {
         // 退出全屏：停掉还在等缓冲的观察；已经开始的切换不打断。
-        // 开了「打开视频即解析」时半屏也是合法场景，不停
-        if (!Pref.highQualityPlaybackOnOpen) {
-          _pauseBackgroundHighQuality();
-        }
+        // 「打开视频即解析」预取回来的流留在 _bgQaRequest 里，
+        // 再次进全屏会直接复用它，不会重复请求。
+        _pauseBackgroundHighQuality();
         return;
       }
 
@@ -482,8 +481,8 @@ class VideoDetailController extends GetxController
 
       // 后台升档：两个开关任一打开，全屏升档都交给后台任务，
       // 避免先升默认画质、再切目标档的连续两次重开。
-      // 「打开视频即解析」是「起播后自动切换」的超集（同一套后台换流，只是
-      // 开始得更早），所以这里也必须认它：只开前者时半屏可能已经换过流，
+      // 「打开视频即解析」是「全屏后开始解析并切换」的超集（同一套后台换流，只是
+      // 解析开始得更早），所以这里也必须认它：只开前者时半屏已经解析好流，
       // 若仍走下面的本地升档，会把解析流打回官方档，白停一下。
       // 该视频没有大会员专属（本地拿不到）的档位时不走这条分支：
       // 没有可解锁的目标，白跑一次远端请求；
@@ -1215,7 +1214,7 @@ class VideoDetailController extends GetxController
     }
   }
 
-  // ===== 起播后自动切换高画质（两阶段加载） =====
+  // ===== 全屏后解析并切换高画质（两阶段加载） =====
   //
   // 第一阶段：起播只请求官方 playurl，不等待第三方服务；
   // 第二阶段：首帧稳定且前向缓冲 ≥5 秒后，后台请求更高画质并静默切源续播。
@@ -1265,8 +1264,12 @@ class VideoDetailController extends GetxController
     );
   }
 
-  /// 起播后登记一次自动切换资格；默认真正的触发在进入全屏时（事件驱动），
-  /// 开了「打开视频即解析」则起播即开始，不必等全屏。
+  /// 起播后登记一次自动切换资格。
+  ///
+  /// 两个开关的分工是「什么时候开始解析」，不是「什么时候换流」：
+  /// - 只开「全屏后开始解析并切换」：进全屏才开始解析并等缓冲；
+  /// - 开「打开视频即解析」：起播就立刻发远端请求（半屏也发），
+  ///   但**换流一律等全屏**，半屏只把流准备好放着。
   void _scheduleBackgroundHighQuality() {
     if (!isUgc || isFileSource) return;
     // 两个开关任一打开都算启用：「打开视频即解析」可单独生效
@@ -1279,7 +1282,7 @@ class VideoDetailController extends GetxController
     if (_bgQaTriedCid == cid.value) return;
     _bgQaPendingCid = cid.value;
     // 起播时已经在全屏（全屏连播），直接开始等缓冲；
-    // 开了「打开视频即解析」则不必等全屏，起播后立刻开始观察
+    // 开了「打开视频即解析」则不必等全屏，起播后立刻发请求并开始观察
     if (Pref.highQualityPlaybackOnOpen ||
         plPlayerController.isFullScreen.value) {
       _armBackgroundHighQuality();
@@ -1300,17 +1303,15 @@ class VideoDetailController extends GetxController
     final generation = ++_bgQaGeneration;
     // 「打开视频即解析」：请求不碰播放器，只换流需要缓冲充足，
     // 所以现在就把远端解析发出去，与下面等首帧/缓冲的过程并行跑。
+    // 换流本身仍然只在全屏发生（见 [_bgQaReady]）。
     if (Pref.highQualityPlaybackOnOpen) {
       _prefetchBackgroundRequest(pendingCid);
     }
-    // 「打开视频即解析」时半屏也继续等，否则保持旧行为：退出全屏即放弃观察
-    final requireFullScreen = !Pref.highQualityPlaybackOnOpen;
 
     void trySwitch() {
       if (generation != _bgQaGeneration ||
           isClosed ||
-          _bgQaPendingCid != cid.value ||
-          (requireFullScreen && !plPlayerController.isFullScreen.value)) {
+          _bgQaPendingCid != cid.value) {
         _stopBackgroundProbe();
         return;
       }
@@ -1373,11 +1374,9 @@ class VideoDetailController extends GetxController
     final ctrl = plPlayerController;
     if (ctrl.processing || _bgQaSwitching) return false;
     if (ctrl.isPipMode) return false;
-    // 只在全屏时静默切换；开了「打开视频即解析」则不限制，半屏也能切
-    if (!Pref.highQualityPlaybackOnOpen &&
-        !ctrl.isFullScreen.value) {
-      return false;
-    }
+    // 换流只在全屏发生：「打开视频即解析」只负责把流提前解析好，
+    // 半屏（含 PiP）期间绝不换源，避免用户看着看着画面突然重开。
+    if (!ctrl.isFullScreen.value) return false;
     // 退到后台时不动播放器，避免把后台播放的音频打断
     if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
       return false;

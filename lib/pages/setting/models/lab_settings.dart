@@ -57,9 +57,10 @@ List<SettingsModel> get labSettings => [
     onTap: _showPrefetchWaitDialog,
   ),
   const SwitchModel(
-    title: '起播后自动切换高画质',
-    subtitle: '先用官方通道快速起播，缓冲充足后后台解析并静默切换，切换瞬间画面会短暂停顿；失败自动保留原画质。'
-        '开启下面「打开视频即解析」后本项置灰、暂不生效（两者是同一套后台换流，只是开始得更早；'
+    title: '全屏后开始解析并切换高画质',
+    subtitle: '先用官方通道快速起播，进入全屏后才开始后台解析，缓冲充足后静默切换，切换瞬间画面会短暂停顿；'
+        '失败自动保留原画质。半屏期间既不解析也不换流。'
+        '开启下面「打开视频即解析」后本项置灰、暂不生效（两者是同一套后台换流，只是解析开始得更早；'
         '关闭下面那项后本项会恢复）',
     leading: Icon(Icons.bolt_outlined),
     setKey: SettingBoxKey.highQualityPlaybackOnStartup,
@@ -68,9 +69,9 @@ List<SettingsModel> get labSettings => [
   ),
   const SwitchModel(
     title: '打开视频即解析（不等全屏）',
-    subtitle: '开启后点开视频就立即在后台解析高画质，不必先进入全屏；'
-        '仍要等首帧稳定、缓冲充足才静默换流，失败保留原画质。'
-        '本项包含上面「起播后自动切换」的全部行为，开启后上面那项置灰、暂不单独生效',
+    subtitle: '开启后点开视频就立即在后台解析高画质，不必先进入全屏，半屏时把流准备好放着；'
+        '但换流仍然只在进入全屏后发生，半屏不会突然重开画面。'
+        '失败保留原画质。本项包含上面「全屏后开始解析并切换」的全部行为，开启后上面那项置灰、暂不单独生效',
     leading: Icon(Icons.fullscreen_exit_outlined),
     setKey: SettingBoxKey.highQualityPlaybackOnOpen,
     defaultVal: false,
