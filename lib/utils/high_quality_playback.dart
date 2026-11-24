@@ -30,8 +30,8 @@ import 'package:get/get.dart' show RxInt;
 ///
 /// 只实现普通投稿（bzview2）；番剧/课程的 bzview3 协议不在此范围内。
 ///
-/// 调用时机：默认只有用户手动点「解锁高画质」才请求；开启「起播后自动切换」后，
-/// 由 VideoDetailController 在首帧稳定、前向缓冲 ≥5 秒时后台调用一次，
+/// 调用时机：默认只有用户手动点「解锁高画质」才请求；开启「全屏后开始解析并切换」后，
+/// 由 VideoDetailController 在进入全屏、首帧稳定、前向缓冲 ≥3 秒时后台调用一次，
 /// 不占用起播路径。
 abstract final class HighQualityPlayback {
   static const String desktopUa =
@@ -82,6 +82,12 @@ abstract final class HighQualityPlayback {
       return -1;
     }
     return cached;
+  }
+
+  /// 画质菜单里独立一行显示的次数文案；次数未知时给个明确说法，不要显示 -1
+  static String get quotaLabel {
+    final left = remainingCount;
+    return '剩余:${left < 0 ? '未知' : '$left次'}';
   }
 
   /// 请求/响应在 localCache 里的键：只在本机留存，不参与配置导出

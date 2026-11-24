@@ -951,9 +951,36 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
             menuItemOuterPadding: EdgeInsets.zero,
             menuItemStateLayerColor: Colors.white,
             itemBuilder: (context) {
-              return List.generate(
-                videoFormat.length,
-                (index) {
+              // 每次点开画质菜单都顺手刷一次剩余次数。不 await：网络慢不能让
+              // 菜单卡住，先把上次的值显示出来，拿到新值再由下面的 Obx 就地更新。
+              // refreshRemaining 内部用 _quotaFuture 去重，连点也只发一个请求。
+              if (HighQualityPlayback.configured) {
+                unawaited(HighQualityPlayback.refreshRemaining());
+              }
+              return <PopupMenuEntry<int>>[
+                // 次数单独占一行，放在最高档位之上（support_formats 是降序，
+                // 首项即最高档）；塞进档位文案会把「1080P 高码率」挤成两行。
+                // 只判 configured、不判「有没有灰档」：解锁成功后 dash 里已经
+                // merge 进高码率轨道，灰档消失，若再判灰档这行就会凭空消失
+                if (HighQualityPlayback.configured)
+                  PopupMenuItem<int>(
+                    enabled: false,
+                    height: 35,
+                    padding: const EdgeInsets.only(left: 15, right: 10),
+                    // 用 Obx 订阅 remaining：菜单是弹出时一次性生成的 route，
+                    // 外面那层 Obx 不会因为次数变化而重建，但 Obx 自己会订阅
+                    // 并重建自己的子树，所以刷新回来的新数字能就地显示。
+                    child: Obx(
+                      () => Text(
+                        HighQualityPlayback.quotaLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ...List.generate(videoFormat.length, (index) {
                   final item = videoFormat[index];
                   final isAvailable = availableQa.contains(item.quality);
                   // 本地没有但高画质服务可用 → 也放开点击，点了才向服务端请求
@@ -1011,8 +1038,8 @@ class _PLVideoPlayerState extends State<PLVideoPlayer>
                             ),
                     ),
                   );
-                },
-              );
+                }),
+              ];
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
