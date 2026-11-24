@@ -147,6 +147,7 @@ abstract final class SettingBoxKey {
       fallbackNormalization = 'fallbackNormalization',
       loudnessTarget = 'loudnessTarget',
       loudnessStrength = 'loudnessStrength',
+      loudnessPreGain = 'loudnessPreGain',
       showPlayerLoudnessBtn = 'showPlayerLoudnessBtn',
       superResolutionType = 'superResolutionType',
       preInitPlayer = 'preInitPlayer',

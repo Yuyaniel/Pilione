@@ -8,9 +8,11 @@ import 'package:PiliPlus/utils/storage_pref.dart';
 /// - 返回上一页再进来、重复点同一个视频；
 /// - 缓存命中时不再消耗远端解析次数。
 ///
-/// 语义是**一次消费**（[take] 取出即删）：缓存里放的是可变的 [PlayUrlModel]，
-/// 播放页会往里写 `lastPlayTime` / 合并轨道，多个页面同时持有同一个实例会互相
-/// 污染，所以只交给一个调用方。
+/// 语义是**滑动过期**：[take] 取出即删，但唯一的读取方 `VideoHttp.videoUrl`
+/// 命中后会立刻 [put] 写回，所以在 TTL 内可以反复命中。之所以仍然保留
+/// 「取出即删」的原子语义，是为了让「同一时刻只有一个持有者」这件事由缓存
+/// 自己保证：缓存里放的是可变的 [PlayUrlModel]，播放页会往里写
+/// `lastPlayTime` / 合并轨道，若同一实例被两处同时持有会互相污染。
 abstract final class PlayUrlCache {
   /// 播放地址有效期一般 2 小时，这里只做「短时」缓存，避免拿到过期地址
   static const Duration ttl = Duration(minutes: 5);

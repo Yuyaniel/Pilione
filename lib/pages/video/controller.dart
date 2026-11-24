@@ -76,6 +76,7 @@ import 'package:PiliPlus/utils/extension/num_ext.dart';
 import 'package:PiliPlus/utils/extension/size_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/path_utils.dart';
+import 'package:PiliPlus/utils/play_url_cache.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/reply_scheme_helper.dart';
 import 'package:PiliPlus/utils/storage.dart';
@@ -1175,6 +1176,32 @@ class VideoDetailController extends GetxController
     );
   }
 
+  /// 解锁 / 后台切换成功后补写 playurl 短时缓存。
+  ///
+  /// 这两条路径直接调 [HighQualityPlayback.request]，绕开了 [VideoHttp.videoUrl]，
+  /// 因此不会自动写缓存。不补这一步，退出视频再进来时 `_queryVideoUrl` 会
+  /// 再打一次远端（多扣一次解析额度），直到那次成功才由 videoUrl 自己 put。
+  /// key 必须与起播那次请求完全一致（qn 固定 [VideoQuality.hdrVivid]），
+  /// 否则下次 `_getVideoUrl` 拼出的 key 对不上。
+  void _cacheUnlockedPlayUrl(int forCid, PlayUrlModel data) {
+    if (!Pref.enablePlayUrlCache) return;
+    PlayUrlCache.put(
+      PlayUrlCache.key(
+        cid: forCid,
+        bvid: bvid,
+        epid: epId,
+        seasonId: seasonId,
+        qn: VideoQuality.hdrVivid.code,
+        language: currLang.value,
+        tryLook: plPlayerController.tryLook,
+        videoType: (_actualVideoType ?? videoType).name,
+        voiceBalance: plPlayerController.enableAudioNormalization,
+        fallback: false,
+      ),
+      data,
+    );
+  }
+
   Future<void> _supplementVideoQualities() async {
     // 本方法已改为后台执行：await 期间可能已切分P/换视频，
     // 因此必须锁定当前这集的 data，避免把上一集的流并进新视频（或对新视频空 dash 解引用）
@@ -1432,6 +1459,8 @@ class VideoDetailController extends GetxController
       if (!await _switchQualitySilently(qa, generation)) {
         return;
       }
+      // 补写短时缓存：退出再进来时直接命中，不再多打一次远端解析
+      _cacheUnlockedPlayUrl(currentCid, current);
     } finally {
       // 后台静默解锁不打扰用户：不加提示 pill、不弹剩余次数 toast，
       // 实际档位以画质菜单为准，失败原因留在 HighQualityPlayback.lastStatus
@@ -1637,6 +1666,8 @@ class VideoDetailController extends GetxController
     }
 
     persistVideoQa(effective);
+    // 补写短时缓存：退出再进来时直接命中，不再多打一次远端解析
+    _cacheUnlockedPlayUrl(currentCid, current);
     return null;
   }
 

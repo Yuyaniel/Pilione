@@ -21,6 +21,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
   late String _fallbackMode;
   late double _targetLufs;
   late double _strength;
+  late double _preGain;
   late bool _showPlayerBtn;
 
   @override
@@ -35,6 +36,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
     _fallbackMode = Pref.fallbackNormalization;
     _targetLufs = Pref.loudnessTarget.toDouble();
     _strength = Pref.loudnessStrength.toDouble();
+    _preGain = Pref.loudnessPreGain.toDouble();
     _showPlayerBtn = Pref.showPlayerLoudnessBtn;
   }
 
@@ -238,6 +240,18 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
     _syncPlayers();
   }
 
+  void _onPreGainChanged(double value) {
+    final rounded = value.round();
+    setState(() => _preGain = value.toDouble());
+    PlPlayerController.instance?.setLoudnessPreGain(rounded, persist: false);
+  }
+
+  void _onPreGainChangeEnd(double value) {
+    final rounded = value.round();
+    GStorage.setting.put(SettingBoxKey.loudnessPreGain, rounded);
+    _syncPlayers();
+  }
+
   void _onShowBtnChanged(bool value) {
     setState(() => _showPlayerBtn = value);
     GStorage.setting.put(SettingBoxKey.showPlayerLoudnessBtn, value);
@@ -251,6 +265,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
       SettingBoxKey.fallbackNormalization,
       SettingBoxKey.loudnessTarget,
       SettingBoxKey.loudnessStrength,
+      SettingBoxKey.loudnessPreGain,
       SettingBoxKey.showPlayerLoudnessBtn,
     ];
     for (final key in keys) {
@@ -373,7 +388,7 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                '数值越大整体声音越响；可调 -24 ~ 0 LUFS、每档 2 LU，默认 -18 LUFS 兼顾人声清晰度与峰值防破音余量。',
+                '数值越大整体声音越响；可调 -18 ~ 0 LUFS、每档 2 LU，默认 -18 LUFS 兼顾人声清晰度与峰值防破音余量。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -412,6 +427,44 @@ class _LoudnessSettingPageState extends State<LoudnessSettingPage> {
               ),
             ),
           ],
+          _SectionTitle('手动预增益', theme),
+          ListTile(
+            title: const Text('预增益'),
+            subtitle: Text(
+              '在自动对齐之外再整体加减音量，当前 ${_preGain > 0 ? '+' : ''}${_preGain.round()} dB',
+            ),
+            trailing: Text(
+              '${_preGain > 0 ? '+' : ''}${_preGain.round()} dB',
+              style: TextStyle(
+                color: theme.colorScheme.primary,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Slider(
+              value: _preGain,
+              min: AudioNormalization.minPreGainDb.toDouble(),
+              max: AudioNormalization.maxPreGainDb.toDouble(),
+              divisions: AudioNormalization.preGainDivisions,
+              label: '${_preGain > 0 ? '+' : ''}${_preGain.round()} dB',
+              onChanged: _onPreGainChanged,
+              onChangeEnd: _onPreGainChangeEnd,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              '可调 -12 ~ +12 dB、每档 1 dB，默认 0 dB 即不额外增益。作为整条链的末级后置增益，'
+              '不受动态均衡目标响度的反向压缩影响，关闭音量均衡时同样生效，'
+              '适用于内容本身录得太轻、手机外放推力不足，以及直播、离线缓存等拿不到响度数据的场景。'
+              '调高会让峰值更贴近 -1.0 dBFS 限幅，底噪同步被放大。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ),
           _SectionTitle('播放器与生效范围', theme),
           SwitchListTile(
             title: const Text('顶栏显示快捷按钮'),

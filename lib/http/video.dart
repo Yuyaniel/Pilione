@@ -287,6 +287,10 @@ abstract final class VideoHttp {
     if (cacheKey != null) {
       final cached = PlayUrlCache.take(cacheKey);
       if (cached != null) {
+        // 命中后写回，让缓存可被多次命中（滑动过期）。
+        // 原「取出即删」是为了避免多个页面同时持有同一可变实例互相污染，
+        // 而顺序进出不构成同时持有，写回是安全的。
+        PlayUrlCache.put(cacheKey, cached);
         return Success(cached);
       }
     }

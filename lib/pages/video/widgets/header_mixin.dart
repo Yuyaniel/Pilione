@@ -697,11 +697,13 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                       !enabled || mode == AudioNormalization.bewlyCode;
                   final targetLufs = plPlayerController.loudnessTarget.value;
                   final strength = plPlayerController.loudnessStrength.value;
+                  final preGain = plPlayerController.loudnessPreGain.value;
                   final summary = plPlayerController.loudnessActiveSummary;
                   final isAllDefault =
                       mode == AudioNormalization.bewlyCode &&
                       targetLufs == AudioNormalization.defaultTargetLufs &&
-                      strength == AudioNormalization.defaultStrength;
+                      strength == AudioNormalization.defaultStrength &&
+                      preGain == AudioNormalization.defaultPreGainDb;
 
                   return ListView(
                     padding: EdgeInsets.zero,
@@ -854,6 +856,36 @@ mixin HeaderMixin<T extends StatefulWidget> on State<T> {
                           ),
                         ),
                       ],
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '手动预增益 ${preGain > 0 ? '+' : ''}$preGain dB',
+                          ),
+                          resetBtn(
+                            theme,
+                            '${AudioNormalization.defaultPreGainDb} dB',
+                            () {
+                              plPlayerController.resetLoudnessPreGain();
+                              setState(() {});
+                            },
+                          ),
+                        ],
+                      ),
+                      Padding(
+                        padding: const .symmetric(vertical: 14),
+                        child: Slider(
+                          min: AudioNormalization.minPreGainDb.toDouble(),
+                          max: AudioNormalization.maxPreGainDb.toDouble(),
+                          divisions: AudioNormalization.preGainDivisions,
+                          value: preGain.toDouble(),
+                          label: '${preGain > 0 ? '+' : ''}$preGain dB',
+                          onChanged: (value) {
+                            plPlayerController.setLoudnessPreGain(value);
+                            setState(() {});
+                          },
+                        ),
+                      ),
                       Padding(
                         padding: const EdgeInsets.only(top: 4, bottom: 14),
                         child: Text(

@@ -861,7 +861,7 @@ abstract final class Pref {
   static String get fallbackNormalization =>
       _setting.get(SettingBoxKey.fallbackNormalization, defaultValue: '0');
 
-  /// 与 AudioNormalization.minTargetLufs / maxTargetLufs 同步（-24 ~ 0）。
+  /// 与 AudioNormalization.minTargetLufs / maxTargetLufs 同步（-18 ~ 0）。
   /// 不 import 模型类，避免把它的 dart:io 依赖带进 web 构建。
   static int get loudnessTarget {
     final value = (_setting.get(
@@ -869,15 +869,21 @@ abstract final class Pref {
           defaultValue: -18,
         ) as num)
         .round()
-        .clamp(-24, 0);
-    // 对齐到 -24 + n*2，兼容升级前存下的奇数档位
-    return -24 + ((value + 24) / 2).round() * 2;
+        .clamp(-18, 0);
+    // 对齐到 -18 + n*2，兼容升级前存下的 -24 ~ -20 与奇数档位
+    return -18 + ((value + 18) / 2).round() * 2;
   }
 
   static int get loudnessStrength =>
       (_setting.get(SettingBoxKey.loudnessStrength, defaultValue: 75) as num)
           .round()
           .clamp(0, 100);
+
+  /// 手动预增益（dB），与 AudioNormalization.min/maxPreGainDb 同步（-12 ~ +12）。
+  static int get loudnessPreGain =>
+      (_setting.get(SettingBoxKey.loudnessPreGain, defaultValue: 0) as num)
+          .round()
+          .clamp(-12, 12);
 
   static bool get showPlayerLoudnessBtn =>
       _setting.get(SettingBoxKey.showPlayerLoudnessBtn, defaultValue: false);

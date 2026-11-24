@@ -82,6 +82,7 @@ class AudioController extends GetxController
       volume: _currentVolume,
       fallbackConfig: Pref.fallbackNormalization,
       isLive: false,
+      preGainDb: Pref.loudnessPreGain,
     );
   }
 

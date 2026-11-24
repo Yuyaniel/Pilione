@@ -1027,6 +1027,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
   late final RxString audioNormalizationMode = Pref.audioNormalization.obs;
   late final RxInt loudnessTarget = Pref.loudnessTarget.obs;
   late final RxInt loudnessStrength = Pref.loudnessStrength.obs;
+  late final RxInt loudnessPreGain = Pref.loudnessPreGain.obs;
   late final RxBool showPlayerLoudnessBtn = Pref.showPlayerLoudnessBtn.obs;
   final Rxn<Volume> currentVolume = Rxn<Volume>();
   Timer? _loudnessSaveTimer;
@@ -1043,6 +1044,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         volume: currentVolume.value,
         fallbackConfig: Pref.fallbackNormalization,
         isLive: isLive,
+        preGainDb: loudnessPreGain.value,
       );
 
   /// 实时下发 mpv 音频滤镜（支持普通播放、后台播放、听视频、后台自动纯音频、画中画、缓存视频与直播）
@@ -1057,6 +1059,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       volume: currentVolume.value,
       fallbackConfig: Pref.fallbackNormalization,
       isLive: isLive,
+      preGainDb: loudnessPreGain.value,
     );
   }
 
@@ -1107,7 +1110,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
         .round()
         .clamp(min, AudioNormalization.maxTargetLufs)
         .toInt();
-    // 对齐到 -24 + n*2 的刻度，保证任何入口写入的值都符合滑块步进 2
+    // 对齐到 -18 + n*2 的刻度，保证任何入口写入的值都符合滑块步进 2
     loudnessTarget.value = min + ((clamped - min) / step).round() * step;
     if (!enableAudioNormalization) {
       audioNormalizationMode.value = AudioNormalization.bewlyCode;
@@ -1146,16 +1149,34 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
   }
 
+  void setLoudnessPreGain(num value, {bool persist = true}) {
+    final clamped = value
+        .round()
+        .clamp(AudioNormalization.minPreGainDb, AudioNormalization.maxPreGainDb)
+        .toInt();
+    loudnessPreGain.value = clamped;
+    // 预增益在音量均衡关闭时也生效（直播、离线缓存拿不到响度数据时靠它兜底），
+    // 因此不像目标响度那样强制切到 bewly 模式。
+    applyAudioNormalization();
+    if (persist) {
+      _scheduleLoudnessSettingsSave();
+    }
+  }
+
   void resetLoudnessTarget() =>
       setLoudnessTarget(AudioNormalization.defaultTargetLufs);
 
   void resetLoudnessStrength() =>
       setLoudnessStrength(AudioNormalization.defaultStrength);
 
+  void resetLoudnessPreGain() =>
+      setLoudnessPreGain(AudioNormalization.defaultPreGainDb);
+
   void resetLoudnessSettings() {
     audioNormalizationMode.value = AudioNormalization.bewlyCode;
     loudnessTarget.value = AudioNormalization.defaultTargetLufs;
     loudnessStrength.value = AudioNormalization.defaultStrength;
+    loudnessPreGain.value = AudioNormalization.defaultPreGainDb;
     showPlayerLoudnessBtn.value = false;
     persistLoudnessSettings();
     applyAudioNormalization();
@@ -1171,6 +1192,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     audioNormalizationMode.value = Pref.audioNormalization;
     loudnessTarget.value = Pref.loudnessTarget;
     loudnessStrength.value = Pref.loudnessStrength;
+    loudnessPreGain.value = Pref.loudnessPreGain;
     showPlayerLoudnessBtn.value = Pref.showPlayerLoudnessBtn;
     applyAudioNormalization();
   }
@@ -1196,6 +1218,7 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             audioNormalizationMode.value,
       SettingBoxKey.loudnessTarget: loudnessTarget.value,
       SettingBoxKey.loudnessStrength: loudnessStrength.value,
+      SettingBoxKey.loudnessPreGain: loudnessPreGain.value,
       SettingBoxKey.showPlayerLoudnessBtn: showPlayerLoudnessBtn.value,
     });
   }
@@ -1401,6 +1424,11 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
     }
     final opt = {
       'video-sync': Pref.videoSync,
+      // 换流时新流要 seek 到切换时刻，默认的 keyframe seek 会落到更早的
+      // 关键帧上，观感就是「画面退回一点」。这里开帧精确 seek，并允许
+      // 为此丢中间帧，避免精确 seek 时出现快进感。
+      'hr-seek': 'yes',
+      'hr-seek-framedrop': 'yes',
       if (Platform.isAndroid) 'ao': Pref.audioOutput,
     };
     final autosync = Pref.autosync;
@@ -1523,19 +1551,10 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
 
   /// 换流后把进度对齐到 [seekTo]。
   ///
-  /// 播放列表预读是在后台提前打开新流的，切换后仍可能停在预读时记下的
-  /// 旧位置；[force] 为 true 时直接补一次精确 seek。
-  Future<void> _alignAfterSwap(
-    NativePlayer player,
-    Duration? seekTo, {
-    bool force = false,
-  }) async {
+  /// 只用于「直接 open」兜底路径：预读路径改走 [_seekAndWait]，
+  /// 因为那边必须等解码到位再 play。
+  Future<void> _alignAfterSwap(NativePlayer player, Duration? seekTo) async {
     if (seekTo == null || seekTo <= Duration.zero) return;
-    if (force) {
-      if (!identical(_videoPlayerController, player)) return;
-      await player.seek(seekTo);
-      return;
-    }
     for (var i = 0; i < 14; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       if (!identical(_videoPlayerController, player)) return;
@@ -1544,6 +1563,32 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
       if ((pos - seekTo).inMilliseconds.abs() <= 500) return;
       await player.seek(seekTo);
       return;
+    }
+  }
+
+  /// seek 并等 mpv 真正解码到目标位置。
+  ///
+  /// media_kit 的 seek 只等命令入队（mpv_command_async），不等画面到位；
+  /// 紧接着 play() 会先输出旧位置那一帧，观感就是「画面退回一点」。
+  Future<void> _seekAndWait(
+    NativePlayer player,
+    Duration target, {
+    int toleranceMs = 80,
+    Duration timeout = const Duration(milliseconds: 600),
+  }) async {
+    if (!identical(_videoPlayerController, player)) return;
+    final done = Completer<void>();
+    final sub = player.stream.position.listen((pos) {
+      if (!done.isCompleted &&
+          (pos - target).inMilliseconds.abs() <= toleranceMs) {
+        done.complete();
+      }
+    });
+    try {
+      await player.seek(target);
+      await done.future.timeout(timeout, onTimeout: () {});
+    } finally {
+      await sub.cancel();
     }
   }
 
@@ -1617,7 +1662,20 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
           }
         });
         try {
-          await player.add(buildMedia(seekTo));
+          // 预读条目的 start 一旦写进 loadfile 就改不了，而真正切换发生
+          // 在 _prefetchWait 之后，届时旧流已经往前走了这么多。这里先
+          // 把起点往前推一个预读窗口，缩短切换后要 seek 的距离。
+          var prefetchStart = seekTo;
+          if (seekTo != null) {
+            final total = player.state.duration;
+            final ahead = seekTo + _prefetchWait;
+            // 别把起点推出片尾：越界会让新条目直接 EOF
+            if (total <= Duration.zero ||
+                ahead <= total - const Duration(seconds: 2)) {
+              prefetchStart = ahead;
+            }
+          }
+          await player.add(buildMedia(prefetchStart));
           await appended.future.timeout(
             const Duration(milliseconds: 500),
             onTimeout: () {},
@@ -1668,10 +1726,15 @@ class PlPlayerController with BlockConfigMixin, AudioNormalizationMixin {
             if (player.state.rate != speed) {
               await setPlaybackSpeed(speed);
             }
+            // 顺序很关键：新条目的 start 是切换发起时的旧位置，
+            // 先 play() 会先吐出旧位置那一帧，再被 seek 拽回当前，
+            // 观感就是「画面退回一点」。改成先 seek 到位再开始播。
+            if (resumeAt != null) {
+              await _seekAndWait(player, resumeAt);
+            }
             if (play ?? playerStatus.isPlaying) {
               await player.play();
             }
-            await _alignAfterSwap(player, resumeAt, force: true);
             return true;
           }
           // 没切过去：删掉追加项，避免播完自动跳进这一条

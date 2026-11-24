@@ -14,6 +14,8 @@ class LoudnessActiveSummary {
     this.measuredLra,
     this.measuredTp,
     this.baseGainDb,
+    this.preGainDb = 0,
+    this.totalGainDb,
     required this.targetLufs,
     required this.strength,
     required this.isLive,
@@ -27,6 +29,13 @@ class LoudnessActiveSummary {
   final double? measuredLra;
   final double? measuredTp;
   final double? baseGainDb;
+
+  /// 用户手动叠加的预增益（dB）
+  final int preGainDb;
+
+  /// 自动对齐 + 手动预增益叠加后的实际总增益（dB）
+  final double? totalGainDb;
+
   final int targetLufs;
   final int strength;
   final bool isLive;
@@ -40,7 +49,10 @@ class LoudnessActiveSummary {
       final lraSuffix = (measuredLra != null && measuredLra! > 0.1)
           ? ' · LRA ${measuredLra!.toStringAsFixed(1)} LU'
           : '';
-      return '原始 ${measuredLufs!.toStringAsFixed(1)} LUFS · 预增益 $sign${baseGainDb!.toStringAsFixed(1)} dB$lraSuffix';
+      final preGainSuffix = preGainDb == 0
+          ? ''
+          : ' · 手动 ${preGainDb > 0 ? '+' : ''}$preGainDb dB';
+      return '原始 ${measuredLufs!.toStringAsFixed(1)} LUFS · 预增益 $sign${baseGainDb!.toStringAsFixed(1)} dB$preGainSuffix$lraSuffix';
     }
     if (isLive) {
       return '直播低延迟动态均衡中（目标 $targetLufs LUFS）';
@@ -68,15 +80,34 @@ enum AudioNormalization {
   static const String loudnormCode = '2';
   static const String customCode = '3';
 
-  static const int minTargetLufs = -24;
+  /// 目标响度下限：-18 LUFS 与抖音 / YouTube 等内容平台的常见母带响度持平，
+  /// 再往下调只会让整体更轻，故不再提供 -24 ~ -20 的低响度档位。
+  static const int minTargetLufs = -18;
   static const int maxTargetLufs = 0;
   static const int defaultTargetLufs = -18;
 
-  /// 目标响度滑块每档 2 LUFS；-24 ~ 0 共 12 档。
+  /// 目标响度滑块每档 2 LUFS；-18 ~ 0 共 9 档。
   /// 两处 UI（设置页 / 播放页顶栏）共用同一刻度数，避免各自算 divisions 漂移。
   static const int targetLufsStep = 2;
   static const int targetLufsDivisions =
       (maxTargetLufs - minTargetLufs) ~/ targetLufsStep;
+
+  /// 手动预增益（dB）：在自动跨视频对齐之外，用户自己再叠加的整体增益。
+  /// 用于「内容本身录得太轻 / 手机外放推力不足」这类自动对齐覆盖不到的场景，
+  /// 也用于直播、离线缓存等拿不到服务端响度数据、自动对齐失效的场合。
+  /// 它作为整条链的**末级**后置增益下发，因此不受 dynaudnorm 目标 RMS 的反向压缩影响。
+  static const int minPreGainDb = -12;
+  static const int maxPreGainDb = 12;
+  static const int defaultPreGainDb = 0;
+  static const int preGainStep = 1;
+  static const int preGainDivisions =
+      (maxPreGainDb - minPreGainDb) ~/ preGainStep;
+
+  /// 自动对齐 + 手动预增益叠加后的总增益安全边界。
+  /// 自动对齐本身仍是 `[-18 dB, +10 dB]`，这里只约束叠加结果，
+  /// 避免 +10 dB 自动 + 12 dB 手动 = +22 dB 把底噪与失真一起放大。
+  static const double minTotalGainDb = -30.0;
+  static const double maxTotalGainDb = 18.0;
 
   static const int minStrength = 0;
   static const int maxStrength = 100;
@@ -149,6 +180,22 @@ enum AudioNormalization {
     final clampedTarget = targetLufs.clamp(minTargetLufs, maxTargetLufs);
     final delta = clampedTarget - volume!.measuredI.toDouble();
     return delta.clamp(-18.0, 10.0);
+  }
+
+  /// 自动对齐增益与手动预增益叠加后的总增益（单位 dB）。
+  ///
+  /// - 两者都为 0 / null 时返回 null，表示不需要插入增益级；
+  /// - 有服务端响度数据时 = 自动对齐增益 + [preGainDb]；
+  /// - 无服务端响度数据时 = [preGainDb]（直播、离线缓存等场景手动预增益仍生效）；
+  /// - 结果统一钳制在 `[minTotalGainDb, maxTotalGainDb]`，防止叠加后过度放大底噪。
+  static double? computeTotalGainDb({
+    required double? baseGainDb,
+    required int preGainDb,
+  }) {
+    final manual = preGainDb.clamp(minPreGainDb, maxPreGainDb).toDouble();
+    if (baseGainDb == null && manual == 0) return null;
+    final total = (baseGainDb ?? 0) + manual;
+    return total.clamp(minTotalGainDb, maxTotalGainDb);
   }
 
   /// 计算 LRA（响度范围）自适应动态平滑系数 `[0.55, 1.0]`：
@@ -341,6 +388,28 @@ enum AudioNormalization {
     return 'alimiter=level_in=${gain.toStringAsFixed(3)}:limit=1:level=0';
   }
 
+  /// 构建手动预增益级（单位 dB）。
+  ///
+  /// 作为整条链的**末级**下发：`dynaudnorm` 会按 `r`（目标 RMS）反向压缩，
+  /// 若把预增益放在它之前，调大只会被它吃掉；放在末尾才是用户真正听到的增量。
+  /// 增益与 `-1.0 dBFS` 峰值限幅合并在同一个 `alimiter` 里完成，
+  /// 因此 `preGainDb` 调到上限也不会产生削波，代价是峰值被压住。
+  static String? buildPreGainFilter(int preGainDb) {
+    final db = preGainDb.clamp(minPreGainDb, maxPreGainDb);
+    if (db == 0) return null;
+    final gain = math
+        .pow(10.0, db / 20.0)
+        .toDouble()
+        .clamp(0.015625, 64.0);
+    return 'alimiter='
+        'level_in=${gain.toStringAsFixed(4)}:'
+        'limit=${peakLimitLinear.toStringAsFixed(5)}:'
+        'attack=5:'
+        'release=80:'
+        'level=0:'
+        'latency=1';
+  }
+
   /// 构建仅包含音量均衡部分的原始滤镜串（不含 `lavfi=[...]` 外壳及超 100% 音量增益）。
   static String buildNormalizationStages({
     required String config,
@@ -378,7 +447,11 @@ enum AudioNormalization {
   }
 
   /// 构建直接下发给 mpv `setProperty('af', ...)` 的完整滤镜字符串。
-  /// 同时合成音量均衡链与 >100% 播放器音量抗削波放大链，互不覆盖。
+  /// 同时合成音量均衡链、手动预增益链与 >100% 播放器音量抗削波放大链，互不覆盖。
+  ///
+  /// 顺序固定为：`音量均衡 → 手动预增益 → >100% 音量增益`。
+  /// 手动预增益放在音量均衡之后，是因为 `dynaudnorm` 会按目标 RMS 反向压缩，
+  /// 放它前面会被吃掉；放末尾用户才能听到线性增量。
   static String buildMpvAfFilter({
     required String config,
     int targetLufs = defaultTargetLufs,
@@ -387,6 +460,7 @@ enum AudioNormalization {
     String fallbackConfig = disableCode,
     bool isLive = false,
     double volumeFactor = 1.0,
+    int preGainDb = defaultPreGainDb,
   }) {
     final normStages = isPlatformSupported
         ? buildNormalizationStages(
@@ -398,20 +472,21 @@ enum AudioNormalization {
             isLive: isLive,
           )
         : '';
+    final preGainStage = isPlatformSupported
+        ? buildPreGainFilter(preGainDb)
+        : null;
     final boostStage = buildVolumeBoostFilter(volumeFactor);
 
-    if (normStages.isEmpty && boostStage == null) {
-      return '';
-    }
-    if (normStages.isEmpty) {
-      return boostStage!;
-    }
+    // 预增益与 >100% 增益都只是「额外的 lavfi 滤镜段」，
+    // 只有在与音量均衡链合流时才需要被 lavfi=[...] 包起来。
+    final extraStages = <String>[?preGainStage, ?boostStage].join(',');
+    if (normStages.isEmpty) return extraStages;
     if (normStages.startsWith('lavfi=')) {
-      return boostStage == null ? normStages : '$normStages,$boostStage';
+      return extraStages.isEmpty ? normStages : '$normStages,$extraStages';
     }
-    final combined =
-        boostStage == null ? normStages : '$normStages,$boostStage';
-    return 'lavfi=[$combined]';
+    return extraStages.isEmpty
+        ? 'lavfi=[$normStages]'
+        : 'lavfi=[$normStages,$extraStages]';
   }
 
   static LoudnessActiveSummary describeActiveState({
@@ -421,6 +496,7 @@ enum AudioNormalization {
     Volume? volume,
     String fallbackConfig = disableCode,
     bool isLive = false,
+    int preGainDb = defaultPreGainDb,
   }) {
     final enabled = isEnabledConfig(config);
     final isBewly = config == bewlyCode;
@@ -431,8 +507,17 @@ enum AudioNormalization {
       volume: volume,
       fallbackConfig: fallbackConfig,
       isLive: isLive,
+      preGainDb: preGainDb,
     );
     final validVol = hasValidMeasuredLoudness(volume);
+    final baseGainDb = isBewly
+        ? computeBaseGainDb(
+            targetLufs: targetLufs,
+            strength: strength,
+            volume: volume,
+          )
+        : null;
+    final clampedPreGain = preGainDb.clamp(minPreGainDb, maxPreGainDb);
     return LoudnessActiveSummary(
       enabled: enabled && filter.isNotEmpty,
       modeTitle: getTitleFromConfig(config),
@@ -444,13 +529,12 @@ enum AudioNormalization {
       measuredTp: validVol && volume!.measuredTp.toDouble().isFinite
           ? volume.measuredTp.toDouble()
           : null,
-      baseGainDb: isBewly
-          ? computeBaseGainDb(
-              targetLufs: targetLufs,
-              strength: strength,
-              volume: volume,
-            )
-          : null,
+      baseGainDb: baseGainDb,
+      preGainDb: clampedPreGain,
+      totalGainDb: computeTotalGainDb(
+        baseGainDb: baseGainDb,
+        preGainDb: clampedPreGain,
+      ),
       targetLufs: targetLufs.clamp(minTargetLufs, maxTargetLufs),
       strength: strength.clamp(minStrength, maxStrength),
       isLive: isLive,
@@ -466,6 +550,7 @@ mixin AudioNormalizationMixin {
   String _cachedNormConfig = AudioNormalization.disableCode;
   int _cachedTargetLufs = AudioNormalization.defaultTargetLufs;
   int _cachedStrength = AudioNormalization.defaultStrength;
+  int _cachedPreGain = AudioNormalization.defaultPreGainDb;
   Volume? _cachedVolume;
   String _cachedFallbackConfig = AudioNormalization.disableCode;
   bool _cachedIsLive = false;
@@ -479,8 +564,8 @@ mixin AudioNormalizationMixin {
     Map<String, String>? map,
   }) => map;
 
-  /// 将当前的「音量均衡配置 + 超过 100% 的防削波增益」合成为同一条 `af` 滤镜下发，
-  /// 避免调整音量与调节音量均衡互相覆盖。
+  /// 将当前的「音量均衡配置 + 手动预增益 + 超过 100% 的防削波增益」合成为同一条 `af` 滤镜下发，
+  /// 避免调整音量、调节音量均衡、调预增益三者互相覆盖。
   void applyCombinedAudioFilters(
     Player? player, {
     required String config,
@@ -489,10 +574,12 @@ mixin AudioNormalizationMixin {
     Volume? volume,
     required String fallbackConfig,
     bool isLive = false,
+    int preGainDb = AudioNormalization.defaultPreGainDb,
   }) {
     _cachedNormConfig = config;
     _cachedTargetLufs = targetLufs;
     _cachedStrength = strength;
+    _cachedPreGain = preGainDb;
     _cachedVolume = volume;
     _cachedFallbackConfig = fallbackConfig;
     _cachedIsLive = isLive;
@@ -508,6 +595,7 @@ mixin AudioNormalizationMixin {
       fallbackConfig: fallbackConfig,
       isLive: isLive,
       volumeFactor: _volumeFactor,
+      preGainDb: preGainDb,
     );
     try {
       player.setProperty('af', nextAf);
@@ -549,6 +637,7 @@ mixin AudioNormalizationMixin {
             volume: _cachedVolume,
             fallbackConfig: _cachedFallbackConfig,
             isLive: _cachedIsLive,
+            preGainDb: _cachedPreGain,
           );
         }
       }

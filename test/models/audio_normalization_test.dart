@@ -109,7 +109,9 @@ void main() {
         strength: 100,
         volume: extremeLoudVolume,
       );
-      expect(negativeGain, -18.0);
+      // 目标响度下限已收到 -18 LUFS：-24 会被 clamp 到 -18，
+      // 于是 -18 - (-1.0) = -17 dB，仍落在 -18 dB 下限之内
+      expect(negativeGain, -17.0);
     });
 
     test('强度 0% 且已有服务端响度时合并为单级 alimiter 以彻底保留原始动态', () {
@@ -236,11 +238,11 @@ void main() {
       );
     });
 
-    test('目标响度范围 -24 ~ 0 LUFS、每档 2 LU', () {
-      expect(AudioNormalization.minTargetLufs, -24);
+    test('目标响度范围 -18 ~ 0 LUFS、每档 2 LU', () {
+      expect(AudioNormalization.minTargetLufs, -18);
       expect(AudioNormalization.maxTargetLufs, 0);
       expect(AudioNormalization.targetLufsStep, 2);
-      expect(AudioNormalization.targetLufsDivisions, 12);
+      expect(AudioNormalization.targetLufsDivisions, 9);
 
       // 上限放宽到 0 后不再被旧的 -14 截住，delta 由安全增益上限钳制
       final gain = AudioNormalization.computeBaseGainDb(
@@ -250,13 +252,67 @@ void main() {
       );
       expect(gain, 10.0);
 
-      // 下限之外仍按 -24 处理
+      // 下限之外按 -18 处理：-18 - (-1.0) = -17 dB
       final lowGain = AudioNormalization.computeBaseGainDb(
         targetLufs: -40,
         strength: 75,
         volume: _makeVolume(measuredI: -1.0),
       );
-      expect(lowGain, -18.0);
+      expect(lowGain, -17.0);
+    });
+
+    test('手动预增益与自动对齐叠加后钳制在 [-30 dB, +18 dB]', () {
+      expect(AudioNormalization.minPreGainDb, -12);
+      expect(AudioNormalization.maxPreGainDb, 12);
+      expect(AudioNormalization.defaultPreGainDb, 0);
+      expect(AudioNormalization.preGainStep, 1);
+      expect(AudioNormalization.preGainDivisions, 24);
+
+      // 两者都为 0 / null 时不下发增益
+      expect(
+        AudioNormalization.computeTotalGainDb(
+          baseGainDb: null,
+          preGainDb: 0,
+        ),
+        isNull,
+      );
+      // 只有手动增益时也照常生效
+      expect(
+        AudioNormalization.computeTotalGainDb(baseGainDb: null, preGainDb: 6),
+        6.0,
+      );
+      // +10 dB 自动 + 12 dB 手动 = 22 dB，被上限截到 18 dB
+      expect(
+        AudioNormalization.computeTotalGainDb(baseGainDb: 10.0, preGainDb: 12),
+        18.0,
+      );
+      // -18 dB 自动 + -12 dB 手动 = -30 dB，正好在下限
+      expect(
+        AudioNormalization.computeTotalGainDb(baseGainDb: -18.0, preGainDb: -12),
+        -30.0,
+      );
+    });
+
+    test('手动预增益 0 dB 不产生额外滤镜，非 0 时追加末级 alimiter', () {
+      final noPreGain = AudioNormalization.buildMpvAfFilter(
+        config: AudioNormalization.disableCode,
+        targetLufs: AudioNormalization.defaultTargetLufs,
+        strength: AudioNormalization.defaultStrength,
+        volume: null,
+      );
+      expect(noPreGain, isEmpty);
+
+      final withPreGain = AudioNormalization.buildMpvAfFilter(
+        config: AudioNormalization.disableCode,
+        targetLufs: AudioNormalization.defaultTargetLufs,
+        strength: AudioNormalization.defaultStrength,
+        volume: null,
+        preGainDb: 6,
+      );
+      expect(withPreGain, startsWith('alimiter=level_in='));
+      expect(withPreGain, contains('limit=0.89125'));
+      // 预增益绝不能用 Android libmpv 缺失的 volume 滤镜
+      expect(withPreGain.contains('volume='), isFalse);
     });
   });
 }
