@@ -112,7 +112,7 @@ class _PlayerInfoBoxState extends State<_PlayerInfoBox> {
       else
         '分辨率: -',
       '帧率: ${fps == null ? '-' : fps.toStringAsFixed(1)}',
-      '视频码率: ${_formatBitrate(player)}',
+      '比特率: ${_formatBitrate(player)}',
       'HDR: ${_formatHdr(params)}',
     ];
 
