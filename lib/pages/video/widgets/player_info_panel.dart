@@ -147,60 +147,17 @@ class _PlayerInfoBoxState extends State<_PlayerInfoBox> {
   }
 }
 
-/// 判断并描述当前流的 HDR 类型。
+/// 判断当前流的 HDR 类型，只给三种结果：HDR10 / HLG / SDR。
 ///
-/// mpv 的 `video-params` 里三件事共同决定 HDR：
-/// - `gamma`（传递函数）：`pq` 是 HDR10 / Dolby Vision 的基础，
-///   `hlg` 是广播 HDR，其余（`bt.1886`、`srgb`）都是 SDR；
-/// - `primaries`（原色坐标）：`bt.2020` 是宽色域，HDR 常见，但 4K SDR
-///   也可能标它，所以单独出现不能算 HDR；
-/// - `sig-peak`（信号峰值）：>1 表示亮度超过 SDR 的 100 nit 参考白。
-///
-/// 只有传递函数是 `pq`/`hlg` 才认定为 HDR；否则输出 SDR，并在括号里带上
-/// 原色与传递函数，方便对照排查偏色问题。
+/// 只看传递函数（mpv `video-params/gamma`），因为它是唯一有决定权的字段：
+/// `pq`（SMPTE ST 2084）是 HDR10 的亮度曲线，`hlg` 是广播 HDR，其余
+/// （`bt.1886`、`srgb`）都是 SDR。原色 bt.2020 单独出现不算 HDR —— 4K SDR
+/// 也常标它，所以不参与判定，也不显示出来，免得每次都要对照含义。
 String _formatHdr(VideoParams params) {
   final gamma = (params.gamma ?? '').toLowerCase();
-  final primaries = (params.primaries ?? '').toLowerCase();
-  final peak = params.sigPeak;
-  final peakText =
-      peak == null || peak <= 0 ? null : '${peak.toStringAsFixed(1)}x';
-
-  final bool isHdr;
-  final String kind;
-  if (gamma.contains('pq') || gamma.contains('smpte2084')) {
-    isHdr = true;
-    // bt.2020 + PQ 且峰值远超 1 的，通常是 HDR10 母版；带杜比视界的流
-    // mpv 会在 primaries 里保留 bt.2020，这里不额外区分，避免误判。
-    kind = primaries.contains('2020') ? 'HDR10' : 'HDR(PQ)';
-  } else if (gamma.contains('hlg') || gamma.contains('arib-std-b67')) {
-    isHdr = true;
-    kind = 'HLG';
-  } else {
-    isHdr = false;
-    kind = 'SDR';
-  }
-
-  if (!isHdr) {
-    if (primaries.isEmpty && gamma.isEmpty) return 'SDR';
-    return 'SDR(${_shortName(primaries)}/${_shortName(gamma)})';
-  }
-  final parts = <String>[kind];
-  if (peakText != null) parts.add(peakText);
-  if (primaries.isNotEmpty) parts.add(_shortName(primaries));
-  return parts.join(' ');
-}
-
-/// 把 mpv 的 bt.2020ncl / smpte2084 之类压成短名，避免撑爆浮层宽度
-String _shortName(String raw) {
-  if (raw.isEmpty) return '-';
-  return switch (raw) {
-    'bt.2020ncl' || 'bt.2020nc' || 'bt.2020' => 'bt2020',
-    'bt.709' => 'bt709',
-    'smpte2084' => 'PQ',
-    'arib-std-b67' => 'HLG',
-    'bt.1886' => '1886',
-    _ => raw,
-  };
+  if (gamma.contains('pq') || gamma.contains('smpte2084')) return 'HDR10';
+  if (gamma.contains('hlg') || gamma.contains('arib-std-b67')) return 'HLG';
+  return 'SDR';
 }
 
 /// 实时视频码率，mpv 的 `video-bitrate` 单位为 bit/s
