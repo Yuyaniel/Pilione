@@ -30,6 +30,12 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
   late PlPlayerController plPlayerController;
   late EdgeInsets padding;
 
+  /// 三个 Tab 各一个，新增规则成功后把对应列表滚回顶部。
+  final List<ScrollController> _scrollControllers = List.generate(
+    DmBlockType.values.length,
+    (_) => ScrollController(),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +50,9 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
 
   @override
   void dispose() {
+    for (final controller in _scrollControllers) {
+      controller.dispose();
+    }
     final ruleFilter = RuleFilter.fromRuleTypeEntries(_controller.rules);
     plPlayerController.filters = ruleFilter;
     GStorage.localCache.put(LocalCacheKey.danmakuFilterRules, ruleFilter);
@@ -121,6 +130,7 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
       return scrollableError;
     }
     return ListView.builder(
+      controller: _scrollControllers[tabIndex],
       itemCount: list.length,
       padding: .only(bottom: padding.bottom + 100),
       itemBuilder: (context, itemIndex) {
@@ -166,6 +176,21 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
         );
       },
     );
+  }
+
+  /// 新增成功后滚回顶部。规则按 id 倒序，新规则就在第一行。
+  /// 列表从空变成非空时 ListView 还没 attach，等一帧再滚。
+  void _scrollToTop(int tabIndex) {
+    final controller = _scrollControllers[tabIndex];
+    if (controller.hasClients) {
+      controller.jumpTo(0);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.hasClients) {
+          controller.jumpTo(0);
+        }
+      });
+    }
   }
 
   void _showAddDialog(
@@ -222,10 +247,13 @@ class _DanmakuBlockPageState extends State<DanmakuBlockPage> {
                     itemId,
                   );
                 }
-                await _controller.danmakuFilterAdd(
+                final added = await _controller.danmakuFilterAdd(
                   filter: filter,
                   type: type.index,
                 );
+                if (added && mounted) {
+                  _scrollToTop(type.index);
+                }
               } else {
                 SmartDialog.showToast(
                   '输入内容${filter.isEmpty ? "不能为空" : "与上次相同"}',

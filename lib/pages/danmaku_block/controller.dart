@@ -31,6 +31,18 @@ class DanmakuBlockController extends GetxController
     super.onClose();
   }
 
+  /// 服务端分配的 id 单调递增，倒序即「最新添加的在最上面」。
+  /// 排序必须留在数据层：删除用的是 itemIndex + removeAt，
+  /// 若在 UI 层临时排序，索引会与原始 RxList 错位，导致删错规则。
+  void _sortDesc(int type) =>
+      rules[type].sort((a, b) => b.id.compareTo(a.id));
+
+  void _sortAll() {
+    for (var i = 0; i < rules.length; i++) {
+      _sortDesc(i);
+    }
+  }
+
   Future<void> queryDanmakuFilter() async {
     SmartDialog.showLoading(msg: '正在同步弹幕屏蔽规则……');
     final result = await DanmakuFilterHttp.danmakuFilter();
@@ -39,6 +51,7 @@ class DanmakuBlockController extends GetxController
       rules[0].addAll(response.rule);
       rules[1].addAll(response.rule1);
       rules[2].addAll(response.rule2);
+      _sortAll();
       if (response.toast case final toast?) {
         SmartDialog.showToast(toast);
       }
@@ -59,7 +72,8 @@ class DanmakuBlockController extends GetxController
     }
   }
 
-  Future<void> danmakuFilterAdd({
+  /// 返回是否真的添加成功，调用方据此决定要不要把列表滚回顶部。
+  Future<bool> danmakuFilterAdd({
     required String filter,
     required int type,
   }) async {
@@ -74,9 +88,12 @@ class DanmakuBlockController extends GetxController
     SmartDialog.dismiss();
     if (res case Success(:final response)) {
       rules[type].add(response);
+      _sortDesc(type);
       SmartDialog.showToast('添加成功');
+      return true;
     } else {
       res.toast();
+      return false;
     }
   }
 
@@ -136,6 +153,7 @@ class DanmakuBlockController extends GetxController
       }
     }
 
+    _sortAll();
     SmartDialog.dismiss();
     SmartDialog.showToast('同步完成：新增 $added 条，删除 $deleted 条');
   }
