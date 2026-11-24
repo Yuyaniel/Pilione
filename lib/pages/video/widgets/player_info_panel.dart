@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:media_kit/media_kit.dart' show NativePlayer, PlayerState;
+import 'package:media_kit/media_kit.dart'
+    show NativePlayer, PlayerState, VideoParams;
 import 'package:material_ui/material_ui.dart';
 
 /// 播放信息浮层
@@ -106,14 +107,13 @@ class _PlayerInfoBoxState extends State<_PlayerInfoBox> {
     final fps = video.fps;
 
     final lines = <String>[
-      '编码: ${_nonEmpty(video.codec)}',
       if (width != null && height != null && width > 0 && height > 0)
         '分辨率: ${width}x$height'
       else
         '分辨率: -',
       '帧率: ${fps == null ? '-' : fps.toStringAsFixed(1)}',
-      '色彩矩阵: ${_nonEmpty(params.colormatrix)}',
-      '比特率: ${_formatBitrate(player)}',
+      '视频码率: ${_formatBitrate(player)}',
+      'HDR: ${_formatHdr(params)}',
     ];
 
     return Container(
@@ -147,9 +147,60 @@ class _PlayerInfoBoxState extends State<_PlayerInfoBox> {
   }
 }
 
-String _nonEmpty(String? value) {
-  if (value == null || value.isEmpty) return '-';
-  return value;
+/// 判断并描述当前流的 HDR 类型。
+///
+/// mpv 的 `video-params` 里三件事共同决定 HDR：
+/// - `gamma`（传递函数）：`pq` 是 HDR10 / Dolby Vision 的基础，
+///   `hlg` 是广播 HDR，其余（`bt.1886`、`srgb`）都是 SDR；
+/// - `primaries`（原色坐标）：`bt.2020` 是宽色域，HDR 常见，但 4K SDR
+///   也可能标它，所以单独出现不能算 HDR；
+/// - `sig-peak`（信号峰值）：>1 表示亮度超过 SDR 的 100 nit 参考白。
+///
+/// 只有传递函数是 `pq`/`hlg` 才认定为 HDR；否则输出 SDR，并在括号里带上
+/// 原色与传递函数，方便对照排查偏色问题。
+String _formatHdr(VideoParams params) {
+  final gamma = (params.gamma ?? '').toLowerCase();
+  final primaries = (params.primaries ?? '').toLowerCase();
+  final peak = params.sigPeak;
+  final peakText =
+      peak == null || peak <= 0 ? null : '${peak.toStringAsFixed(1)}x';
+
+  final bool isHdr;
+  final String kind;
+  if (gamma.contains('pq') || gamma.contains('smpte2084')) {
+    isHdr = true;
+    // bt.2020 + PQ 且峰值远超 1 的，通常是 HDR10 母版；带杜比视界的流
+    // mpv 会在 primaries 里保留 bt.2020，这里不额外区分，避免误判。
+    kind = primaries.contains('2020') ? 'HDR10' : 'HDR(PQ)';
+  } else if (gamma.contains('hlg') || gamma.contains('arib-std-b67')) {
+    isHdr = true;
+    kind = 'HLG';
+  } else {
+    isHdr = false;
+    kind = 'SDR';
+  }
+
+  if (!isHdr) {
+    if (primaries.isEmpty && gamma.isEmpty) return 'SDR';
+    return 'SDR(${_shortName(primaries)}/${_shortName(gamma)})';
+  }
+  final parts = <String>[kind];
+  if (peakText != null) parts.add(peakText);
+  if (primaries.isNotEmpty) parts.add(_shortName(primaries));
+  return parts.join(' ');
+}
+
+/// 把 mpv 的 bt.2020ncl / smpte2084 之类压成短名，避免撑爆浮层宽度
+String _shortName(String raw) {
+  if (raw.isEmpty) return '-';
+  return switch (raw) {
+    'bt.2020ncl' || 'bt.2020nc' || 'bt.2020' => 'bt2020',
+    'bt.709' => 'bt709',
+    'smpte2084' => 'PQ',
+    'arib-std-b67' => 'HLG',
+    'bt.1886' => '1886',
+    _ => raw,
+  };
 }
 
 /// 实时视频码率，mpv 的 `video-bitrate` 单位为 bit/s
