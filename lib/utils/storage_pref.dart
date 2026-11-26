@@ -1386,6 +1386,13 @@ abstract final class Pref {
     defaultValue: false,
   );
 
+  /// 进入视频页后停留多少秒才允许后台解析。
+  /// 误触进来看两眼就退出不该消耗一次解析次数；0 表示不延迟（旧行为）。
+  static int get highQualityPlaybackDelaySeconds => _setting.get(
+    SettingBoxKey.highQualityPlaybackDelaySeconds,
+    defaultValue: 20,
+  );
+
   /// 番剧/课程是否也走第三方解析（bzview3），仅对非 DRM 内容有效
   static bool get pgcPlayback =>
       _setting.get(SettingBoxKey.pgcPlayback, defaultValue: false);

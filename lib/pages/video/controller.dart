@@ -1220,6 +1220,13 @@ class VideoDetailController extends GetxController
   // 第二阶段：首帧稳定且前向缓冲 ≥5 秒后，后台请求更高画质并静默切源续播。
   // 切换失败自动回退原画质；手动改画质 / 切集 / 离开页面都会取消挂起任务。
 
+  /// 停留计时器：到点置 [_dwellSatisfied] 并尝试一次后台解析。
+  /// 页面销毁 / 切集 / 换数据源都会经 [cancelBackgroundHighQuality] 取消。
+  Timer? _dwellTimer;
+
+  /// 半屏是否已满足停留门槛。全屏不看这个值，见 [_dwellOk]。
+  bool _dwellSatisfied = false;
+
   Timer? _bgQaProbe;
 
   /// 事件驱动的就绪观察者：订阅播放位置 / 缓冲 / 卡顿 / 全屏，
@@ -1268,8 +1275,11 @@ class VideoDetailController extends GetxController
   ///
   /// 两个开关的分工是「什么时候开始解析」，不是「什么时候换流」：
   /// - 只开「全屏后开始解析并切换」：进全屏才开始解析并等缓冲；
-  /// - 开「打开视频即解析」：起播就立刻发远端请求（半屏也发），
+  /// - 开「打开视频即解析」：起播后满足半屏停留时间就发远端请求（半屏也发），
   ///   但**换流一律等全屏**，半屏只把流准备好放着。
+  ///
+  /// 半屏停留门槛（[Pref.highQualityPlaybackDelaySeconds]）只约束未全屏的情况：
+  /// 进全屏即解析，见 [_dwellOk]。
   void _scheduleBackgroundHighQuality() {
     if (!isUgc || isFileSource) return;
     // 两个开关任一打开都算启用：「打开视频即解析」可单独生效
@@ -1280,17 +1290,63 @@ class VideoDetailController extends GetxController
     if (!HighQualityPlayback.configured) return;
     if (HighQualityPlayback.isUnlocked(cid.value)) return;
     if (_bgQaTriedCid == cid.value) return;
-    _bgQaPendingCid = cid.value;
-    // 起播时已经在全屏（全屏连播），直接开始等缓冲；
-    // 开了「打开视频即解析」则不必等全屏，起播后立刻发请求并开始观察
+    final targetCid = cid.value;
+    _bgQaPendingCid = targetCid;
+
+    // 停留门槛：先起一个可配置的计时器，到点才允许解析。
+    // 误触进来看两眼就退出不该扣次数，所以这里不发请求，只登记资格。
+    _startDwellTimer(targetCid);
+  }
+
+  /// 启动「停留满 [Pref.highQualityPlaybackDelaySeconds] 秒才解析」的计时。
+  ///
+  /// 同一集只保留一个计时器：重复进入（重载 / 从下层页面返回）会先取消
+  /// 旧的再起新的，因此反复进出永远是「从 0 开始」。
+  /// 设置为 0 时立即放行，等价于旧行为。
+  void _startDwellTimer(int targetCid) {
+    _dwellTimer?.cancel();
+    _dwellTimer = null;
+    _dwellSatisfied = false;
+    final seconds = Pref.highQualityPlaybackDelaySeconds;
+    if (seconds <= 0) {
+      _dwellSatisfied = true;
+      _armIfAllowed();
+      return;
+    }
+    _dwellTimer = Timer(Duration(seconds: seconds), () {
+      _dwellTimer = null;
+      // 到点时页面可能已销毁 / 已切集，两个都要挡住
+      if (isClosed || cid.value != targetCid) return;
+      if (_bgQaPendingCid != targetCid) return;
+      if (_bgQaTriedCid == targetCid) return;
+      _dwellSatisfied = true;
+      _armIfAllowed();
+    });
+    // 起播时就已经在全屏（全屏连播 / 全屏状态下切集）：门槛对全屏不生效，
+    // 不必等计时器到点，立即解析并切换。
+    if (plPlayerController.isFullScreen.value) _armIfAllowed();
+  }
+
+  /// 满足停留门槛后按原规则决定是否立刻开始等缓冲：
+  /// 开了「打开视频即解析」不必等全屏，否则要等用户进全屏。
+  void _armIfAllowed() {
     if (Pref.highQualityPlaybackOnOpen ||
         plPlayerController.isFullScreen.value) {
       _armBackgroundHighQuality();
     }
   }
 
+  /// 停留门槛是否放行。
+  ///
+  /// 门槛只约束「半屏」：用户主动进全屏说明是真在看，此时不必再等满设置值，
+  /// 进全屏即解析并切换（起播就在全屏的连播路径同样立即放行）。
+  bool get _dwellOk =>
+      _dwellSatisfied || plPlayerController.isFullScreen.value;
+
   /// 开始观察缓冲：满足「已出画面 + 缓冲 ≥3s + 不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
+    // 半屏要等满设置的停留时间；全屏不看这个门槛
+    if (!_dwellOk) return;
     // 该视频没有可解锁的档位：不请求、不提示（起播即全屏的路径据此跳过）
     if (!_hasUnlockableQuality) return;
     // 手动解锁 / 后台切源进行中，别叠加第二次重开
@@ -1397,10 +1453,19 @@ class VideoDetailController extends GetxController
   void cancelBackgroundHighQuality() {
     _bgQaGeneration++;
     _stopBackgroundProbe();
+    _stopDwellTimer();
     _bgQaPendingCid = null;
     // 已发出的预取请求结果一并丢弃：手动改画质 / 切集后不能再拿它换流
     _bgQaRequest = null;
     _bgQaRequestCid = null;
+  }
+
+  /// 停掉停留计时并复位门槛。下次 [_scheduleBackgroundHighQuality]
+  /// 会重新从 0 开始计时，反复进出不会被累计。
+  void _stopDwellTimer() {
+    _dwellTimer?.cancel();
+    _dwellTimer = null;
+    _dwellSatisfied = false;
   }
 
   Future<void> _runBackgroundHighQuality(int generation) async {

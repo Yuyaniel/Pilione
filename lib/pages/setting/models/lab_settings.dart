@@ -77,6 +77,16 @@ List<SettingsModel> get labSettings => [
     defaultVal: false,
   ),
   NormalModel(
+    title: '半屏解析前停留时间',
+    leading: const Icon(Icons.hourglass_bottom_outlined),
+    getSubtitle: () => '未全屏时停留满这么多秒才开始后台解析，'
+        '当前 ${Pref.highQualityPlaybackDelaySeconds} 秒；'
+        '误触进来看两眼就退出不会消耗解析次数。'
+        '仅约束未全屏时的自动解析，进入全屏立即解析并切换。'
+        '0 = 不延迟（立即解析）',
+    onTap: _showParseDelayDialog,
+  ),
+  NormalModel(
     title: '高画质服务地址',
     leading: const Icon(Icons.dns_outlined),
     getSubtitle: () => Pref.highQualityPlaybackServer.isEmpty
@@ -410,6 +420,31 @@ Future<void> _showPrefetchWaitDialog(
   );
   if (res != null) {
     await GStorage.setting.put(SettingBoxKey.playerPrefetchWaitMs, res);
+    setState();
+  }
+}
+
+Future<void> _showParseDelayDialog(
+  BuildContext context,
+  VoidCallback setState,
+) async {
+  final res = await showDialog<double>(
+    context: context,
+    builder: (context) => SliderDialog(
+      title: const Text('半屏解析前停留时间'),
+      min: 0,
+      max: 120,
+      divisions: 40,
+      precise: 0,
+      value: Pref.highQualityPlaybackDelaySeconds.toDouble(),
+      suffix: ' 秒',
+    ),
+  );
+  if (res != null) {
+    await GStorage.setting.put(
+      SettingBoxKey.highQualityPlaybackDelaySeconds,
+      res.toInt(),
+    );
     setState();
   }
 }

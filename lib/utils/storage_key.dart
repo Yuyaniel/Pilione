@@ -32,6 +32,7 @@ abstract final class SettingBoxKey {
       highQualityPlaybackIgnoreShort = 'highQualityPlaybackIgnoreShort',
       highQualityPlaybackOnStartup = 'highQualityPlaybackOnStartup',
       highQualityPlaybackOnOpen = 'highQualityPlaybackOnOpen',
+      highQualityPlaybackDelaySeconds = 'highQualityPlaybackDelaySeconds',
       pgcPlayback = 'pgcPlayback',
       enablePlayUrlCache = 'enablePlayUrlCache',
       enableCdnMemory = 'enableCdnMemory',
