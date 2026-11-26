@@ -9,9 +9,9 @@ enum PlayerLayoutControl {
   coin('投币', PlayerLayoutRegion.actions),
   favorite('收藏', PlayerLayoutRegion.actions),
   download('缓存', PlayerLayoutRegion.actions),
-  playerInfo('播放信息', PlayerLayoutRegion.actions),
   share('分享', PlayerLayoutRegion.actions),
   loudness('音量均衡', PlayerLayoutRegion.actions),
+  playerInfo('播放信息', PlayerLayoutRegion.actions),
   viewPoints('章节', PlayerLayoutRegion.bottom),
   dmChart('高能进度条', PlayerLayoutRegion.bottom),
   superResolution('超分辨率', PlayerLayoutRegion.bottom),
@@ -96,7 +96,9 @@ class FullscreenLayout {
     Object? data, {
     required FullscreenLayout fallback,
   }) {
-    if (data is! Map || data['version'] != 1) return fallback;
+    if (data is! Map || (data['version'] != 1 && data['version'] != 2)) {
+      return fallback;
+    }
     final rawRegions = data['regions'];
     final regions = <PlayerLayoutRegion, List<PlayerLayoutControl>>{};
     final seen = <PlayerLayoutControl>{};
@@ -112,6 +114,20 @@ class FullscreenLayout {
     for (final region in PlayerLayoutRegion.values) {
       for (final item in fallback.items(region)) {
         if (seen.add(item)) regions[region]!.add(item);
+      }
+    }
+    // v1 的默认顺序是「播放信息 / 分享 / 音量均衡」，v2 改成
+    // 「分享 / 音量均衡 / 播放信息」。只在存档里仍保留旧默认的连续块时迁移，
+    // 用户自己拖过的顺序保持不动。
+    if (data['version'] == 1) {
+      final actions = regions[PlayerLayoutRegion.actions]!;
+      final iInfo = actions.indexOf(PlayerLayoutControl.playerInfo);
+      final iShare = actions.indexOf(PlayerLayoutControl.share);
+      final iLoud = actions.indexOf(PlayerLayoutControl.loudness);
+      if (iInfo >= 0 && iShare == iInfo + 1 && iLoud == iShare + 1) {
+        actions
+          ..removeAt(iInfo)
+          ..insert(iLoud, PlayerLayoutControl.playerInfo);
       }
     }
     final rawHidden = data['hidden'];
@@ -152,7 +168,7 @@ class FullscreenLayout {
   }
 
   Map<String, Object> toJson() => {
-    'version': 1,
+    'version': 2,
     'regions': {
       for (final entry in regions.entries)
         entry.key.name: entry.value.map((item) => item.name).toList(),

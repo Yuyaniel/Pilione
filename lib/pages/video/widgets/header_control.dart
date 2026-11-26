@@ -2118,23 +2118,6 @@ class HeaderControlState extends State<HeaderControl>
           semanticsLabel: '缓存',
         ),
       ),
-      PlayerLayoutControl.playerInfo: SizedBox(
-        width: btnWidth,
-        height: btnHeight,
-        child: ActionItem(
-          expand: false,
-          icon: const Icon(Icons.info_outline, color: Colors.white),
-          onTap: () {
-            final player = plPlayerController.videoPlayerController;
-            if (player == null) {
-              SmartDialog.showToast('播放器未就绪');
-              return;
-            }
-            PlayerInfoOverlay.toggle(context, player: player);
-          },
-          semanticsLabel: '播放信息',
-        ),
-      ),
       PlayerLayoutControl.share: SizedBox(
         width: btnWidth,
         height: btnHeight,
@@ -2171,6 +2154,23 @@ class HeaderControlState extends State<HeaderControl>
           ),
         );
       }),
+      PlayerLayoutControl.playerInfo: SizedBox(
+        width: btnWidth,
+        height: btnHeight,
+        child: ActionItem(
+          expand: false,
+          icon: const Icon(Icons.info_outline, color: Colors.white),
+          onTap: () {
+            final player = plPlayerController.videoPlayerController;
+            if (player == null) {
+              SmartDialog.showToast('播放器未就绪');
+              return;
+            }
+            PlayerInfoOverlay.toggle(context, player: player);
+          },
+          semanticsLabel: '播放信息',
+        ),
+      ),
     };
 
     final headerWidgets = <PlayerLayoutControl, Widget>{

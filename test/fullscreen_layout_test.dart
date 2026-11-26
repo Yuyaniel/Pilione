@@ -66,7 +66,13 @@ void main() {
 
   test('inserts in both directions without changing hidden state or original', () {
     final hidden = defaults.toggle(PlayerLayoutControl.like);
-    final moved = hidden.move(PlayerLayoutControl.like, PlayerLayoutRegion.actions, 5);
+    // index 是「移除源项目之前」的插入位置（与 ReorderableListView 一致），
+    // 源项目原本在 index 之前时会被减一，所以移到末位要传 length。
+    final moved = hidden.move(
+      PlayerLayoutControl.like,
+      PlayerLayoutRegion.actions,
+      defaults.items(PlayerLayoutRegion.actions).length,
+    );
     expect(moved.items(PlayerLayoutRegion.actions).last, PlayerLayoutControl.like);
     expect(moved.shows(PlayerLayoutControl.like), isFalse);
     expect(defaults.items(PlayerLayoutRegion.actions).first, PlayerLayoutControl.like);
@@ -97,5 +103,52 @@ void main() {
     expect(restored.toJson(), layout.toJson());
     expect(restored.hidden.clear, throwsUnsupportedError);
     expect(() => restored.items(PlayerLayoutRegion.bottom).clear(), throwsUnsupportedError);
+  });
+
+  test('default actions end with playerInfo, share and loudness first', () {
+    expect(defaults.items(PlayerLayoutRegion.actions).sublist(4), [
+      PlayerLayoutControl.share,
+      PlayerLayoutControl.loudness,
+      PlayerLayoutControl.playerInfo,
+    ]);
+    expect(defaults.toJson()['version'], 2);
+  });
+
+  test('v1 archive keeps the old adjacent block is migrated', () {
+    final migrated = FullscreenLayout.fromJson({
+      'version': 1,
+      'regions': {
+        'actions': [
+          'like',
+          'coin',
+          'favorite',
+          'download',
+          'playerInfo',
+          'share',
+          'loudness',
+        ],
+      },
+      'hidden': <String>[],
+    }, fallback: defaults);
+    expect(migrated.items(PlayerLayoutRegion.actions).sublist(4), [
+      PlayerLayoutControl.share,
+      PlayerLayoutControl.loudness,
+      PlayerLayoutControl.playerInfo,
+    ]);
+  });
+
+  test('v1 archive with a user-chosen order is left alone', () {
+    final kept = FullscreenLayout.fromJson({
+      'version': 1,
+      'regions': {
+        'actions': ['share', 'playerInfo', 'loudness'],
+      },
+      'hidden': <String>[],
+    }, fallback: defaults);
+    expect(kept.items(PlayerLayoutRegion.actions).take(3), [
+      PlayerLayoutControl.share,
+      PlayerLayoutControl.playerInfo,
+      PlayerLayoutControl.loudness,
+    ]);
   });
 }

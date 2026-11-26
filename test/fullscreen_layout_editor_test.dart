@@ -283,7 +283,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('完成编辑'));
     await tester.pumpAndSettle();
-    expect(saved!.items(PlayerLayoutRegion.actions).last, PlayerLayoutControl.like);
+    // 拖到「分享」右边缘 = 插到分享之后，而不是整体末位
+    // （默认顺序末尾现在是播放信息，见 fullscreen_layout_test 的默认顺序断言）。
+    final actions = saved!.items(PlayerLayoutRegion.actions);
+    expect(actions.indexOf(PlayerLayoutControl.like),
+        actions.indexOf(PlayerLayoutControl.share) + 1);
   });
 
   testWidgets('side drag moves the lock to the right without hiding it', (tester) async {
