@@ -1224,7 +1224,7 @@ class VideoDetailController extends GetxController
   /// 页面销毁 / 切集 / 换数据源都会经 [cancelBackgroundHighQuality] 取消。
   Timer? _dwellTimer;
 
-  /// 半屏是否已满足停留门槛。全屏不看这个值，见 [_dwellOk]。
+  /// 是否已满足停留门槛。与是否全屏无关：全屏也要停满设置值。
   bool _dwellSatisfied = false;
 
   Timer? _bgQaProbe;
@@ -1275,11 +1275,11 @@ class VideoDetailController extends GetxController
   ///
   /// 两个开关的分工是「什么时候开始解析」，不是「什么时候换流」：
   /// - 只开「全屏后开始解析并切换」：进全屏才开始解析并等缓冲；
-  /// - 开「打开视频即解析」：起播后满足半屏停留时间就发远端请求（半屏也发），
+  /// - 开「打开视频即解析」：起播后满足停留时间就发远端请求（半屏也发），
   ///   但**换流一律等全屏**，半屏只把流准备好放着。
   ///
-  /// 半屏停留门槛（[Pref.highQualityPlaybackDelaySeconds]）只约束未全屏的情况：
-  /// 进全屏即解析，见 [_dwellOk]。
+  /// 停留门槛（[Pref.highQualityPlaybackDelaySeconds]）对全屏与半屏一视同仁：
+  /// 只有停满设置秒数才解析，全屏不享有跳过等待的特权。
   void _scheduleBackgroundHighQuality() {
     if (!isUgc || isFileSource) return;
     // 两个开关任一打开都算启用：「打开视频即解析」可单独生效
@@ -1322,9 +1322,6 @@ class VideoDetailController extends GetxController
       _dwellSatisfied = true;
       _armIfAllowed();
     });
-    // 起播时就已经在全屏（全屏连播 / 全屏状态下切集）：门槛对全屏不生效，
-    // 不必等计时器到点，立即解析并切换。
-    if (plPlayerController.isFullScreen.value) _armIfAllowed();
   }
 
   /// 满足停留门槛后按原规则决定是否立刻开始等缓冲：
@@ -1336,17 +1333,10 @@ class VideoDetailController extends GetxController
     }
   }
 
-  /// 停留门槛是否放行。
-  ///
-  /// 门槛只约束「半屏」：用户主动进全屏说明是真在看，此时不必再等满设置值，
-  /// 进全屏即解析并切换（起播就在全屏的连播路径同样立即放行）。
-  bool get _dwellOk =>
-      _dwellSatisfied || plPlayerController.isFullScreen.value;
-
   /// 开始观察缓冲：满足「已出画面 + 缓冲 ≥3s + 不卡顿」就静默切换。
   void _armBackgroundHighQuality() {
-    // 半屏要等满设置的停留时间；全屏不看这个门槛
-    if (!_dwellOk) return;
+    // 全屏与半屏一视同仁：都要等满设置的停留时间
+    if (!_dwellSatisfied) return;
     // 该视频没有可解锁的档位：不请求、不提示（起播即全屏的路径据此跳过）
     if (!_hasUnlockableQuality) return;
     // 手动解锁 / 后台切源进行中，别叠加第二次重开

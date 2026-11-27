@@ -77,12 +77,12 @@ List<SettingsModel> get labSettings => [
     defaultVal: false,
   ),
   NormalModel(
-    title: '半屏解析前停留时间',
+    title: '解析前停留时间',
     leading: const Icon(Icons.hourglass_bottom_outlined),
-    getSubtitle: () => '未全屏时停留满这么多秒才开始后台解析，'
+    getSubtitle: () => '停留满这么多秒才开始后台解析，'
         '当前 ${Pref.highQualityPlaybackDelaySeconds} 秒；'
         '误触进来看两眼就退出不会消耗解析次数。'
-        '仅约束未全屏时的自动解析，进入全屏立即解析并切换。'
+        '全屏与半屏都要等满这个时间，进全屏不会跳过等待。'
         '0 = 不延迟（立即解析）',
     onTap: _showParseDelayDialog,
   ),
@@ -431,7 +431,7 @@ Future<void> _showParseDelayDialog(
   final res = await showDialog<double>(
     context: context,
     builder: (context) => SliderDialog(
-      title: const Text('半屏解析前停留时间'),
+      title: const Text('解析前停留时间'),
       min: 0,
       max: 120,
       divisions: 40,
